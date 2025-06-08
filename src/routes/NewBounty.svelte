@@ -592,7 +592,7 @@
       {#if !platformInitialized}
         Platform Not Ready
       {:else if isSubmitting}
-        Waiting for confirmation of the project creation...
+        Waiting for confirmation of the bounty creation...
       {:else}
         Create Bounty
       {/if}
