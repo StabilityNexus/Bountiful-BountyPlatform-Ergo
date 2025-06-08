@@ -1,0 +1,12 @@
+{
+	"/": [
+		"src/routes/+layout.ts",
+		"src/routes/+layout.ts"
+	],
+	"/bounty/[id]": [
+		"src/routes/+layout.ts"
+	],
+	"/dev": [
+		"src/routes/+layout.ts"
+	]
+}
