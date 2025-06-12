@@ -1,0 +1,574 @@
+{
+// ===== Contract Description ===== //
+// Name: Bountiful Bounty Platform Contract
+// Description: Enables bounty creation, contribution management, and reward distribution
+// Version: 1.0.0
+// Author: Bountiful Team
+
+// ===== Box Contents ===== //
+// Tokens
+// 1. (id, amount)
+//    APT (Bounty Contribution Token); Identifies contributors to the bounty and tracks their stake.
+//    where:
+//       id      The bounty identifier.
+//       amount  APT emission amount + 1
+// 2. (id, amount)
+//    PFT (Bounty Reward Token); Proof of contribution token that can be exchanged for rewards
+//    where:
+//       id      The bounty reward token identifier.
+//       amount  The number of tokens equivalent to the maximum amount of ERG the bounty aims to collect.
+
+// Registers
+// R4: Int                   The block height until which contributions are allowed. After this height, bounty can be claimed or refunded.
+// R5: Long                  The minimum amount of ERG that must be contributed to make the bounty claimable.
+// R6: Coll[Long]           The total ERG contributed, the total ERG refunded, and the total APT exchanged for PFT so far.
+// R7: Long                  The ERG-to-token exchange rate (ERG per contribution token).
+// R8: Coll[Byte]            Base58-encoded JSON string containing the bounty creator's details.
+// R9: Coll[Byte]            Base58-encoded JSON string containing bounty metadata, including "title", "description", "requirements".
+
+// ===== Transactions ===== //
+// 1. Contribute to Bounty
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box containing ERG
+// Data Inputs: None
+// Outputs:
+//   - Updated Bounty Contract
+//   - Contributor box containing APT (contribution tokens)
+// Constraints:
+//   - Ensure accurate ERG-to-token exchange based on the exchange rate.
+//   - Update the contribution counter correctly.
+//   - Transfer the correct number of tokens to the contributor.
+//   - Validate that the contract is replicated correctly.
+
+// 2. Refund Contribution
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box containing APT tokens
+// Outputs:
+//   - Updated Bounty Contract  
+//   - Contributor box containing refunded ERG
+// Constraints:
+//   - Ensure the block height has surpassed the deadline (R4).
+//   - Ensure the minimum contribution threshold (R5) has not been reached.
+//   - Update the refund counter correctly.
+//   - Validate the ERG-to-token refund exchange.
+//   - Ensure the contract is replicated correctly.
+
+// 3. Claim Bounty Reward
+// Inputs:
+//   - Bounty Contract
+// Outputs:
+//   - Updated Bounty Contract (if partially claimed; otherwise, contract depletes funds completely)
+//   - Box containing ERG for the solution provider (100% - dev_fee).
+//   - Box containing ERG for the developer address (dev_fee).
+// Constraints:
+//   - Ensure the minimum contribution threshold (R5) has been reached.
+//   - Verify the correctness of the developer fee calculation.
+//   - Ensure either complete withdrawal or proper replication of the contract.
+
+// 4. Withdraw Unused Reward Tokens
+// Inputs:
+//   - Bounty Contract
+// Outputs:
+//   - Updated Bounty Contract
+//   - Box containing unused reward tokens sent to the bounty creator
+// Constraints:
+//   - Validate proper replication of the contract.
+//   - Ensure no ERG value changes during the transaction.
+//   - Handle unused tokens correctly.
+
+// 5. Add More Reward Tokens
+// Inputs:
+//   - Bounty Contract
+//   - Box containing tokens sent from the bounty creator
+// Outputs:
+//   - Updated Bounty Contract
+// Constraints:
+//   - Validate proper replication of the contract.
+//   - Ensure no ERG value changes during the transaction.
+//   - Handle the added tokens correctly.
+
+// 6. Exchange Contribution Tokens for Reward Tokens
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box with APT tokens
+// Outputs:
+//   - Updated Bounty Contract
+//   - Contributor box with PFT tokens
+// Constraints:
+//   - Ensure minimum contribution threshold has been met
+//   - Validate 1:1 exchange ratio between APT and PFT
+//   - Update exchange counter correctly
+
+// ===== Compile Time Constants ===== //
+// $owner_addr: Base58 address of the bounty creator.
+// $dev_fee_contract_bytes_hash: Blake2b-256 base16 string hash of the dev fee contract proposition bytes.
+// $dev_fee: Percentage fee allocated to the developer (e.g., 5 for 5%).
+// $token_id: Unique string identifier for the bounty reward token.
+
+// ===== Context Variables ===== //
+// None
+
+// ===== Helper Functions ===== //
+// None
+
+  def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
+    // APT amount that serves as temporary contribution token that is currently on the contract available to exchange.
+
+    val bounty_reward_token_amount = if (contract.tokens.size == 1) 0L else contract.tokens(1)._2
+    val contributed                = contract.R6[Coll[Long]].get(0)
+    val refunded                   = contract.R6[Coll[Long]].get(1)
+    val exchanged                  = contract.R6[Coll[Long]].get(2)  // If the exchanged APT -> PFT amount is not accounted for, it will result in double-counting the contributed amount.
+
+    bounty_reward_token_amount - contributed + refunded + exchanged
+  }
+
+  def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
+
+    val prop: SigmaProp = propAndBox._1
+    val box: Box = propAndBox._2
+
+    val propBytes: Coll[Byte] = prop.propBytes
+    val treeBytes: Coll[Byte] = box.propositionBytes
+
+    if (treeBytes(0) == 0) {
+
+        (treeBytes == propBytes)
+
+    } else {
+
+        // offset = 1 + <number of VLQ encoded bytes to store propositionBytes.size>
+        val offset = if (treeBytes.size > 127) 3 else 2
+        (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
+
+    }
+
+  }
+
+  val selfId = SELF.tokens(0)._1
+  val selfAPT = SELF.tokens(0)._2
+  val selfValue = SELF.value
+  val selfBlockLimit = SELF.R4[Int].get
+  val selfMinimumContribution = SELF.R5[Long].get
+  val selfContributedCounter = SELF.R6[Coll[Long]].get(0)
+  val selfRefundCounter = SELF.R6[Coll[Long]].get(1)
+  val selfAuxiliarExchangeCounter = SELF.R6[Coll[Long]].get(2)
+  val selfExchangeRate = SELF.R7[Long].get
+  val selfCreatorDetails = SELF.R8[Coll[Byte]].get
+  val selfBountyMetadata = SELF.R9[Coll[Byte]].get
+  val selfScript = SELF.propositionBytes
+
+  // Validation of the box replication process
+  val isSelfReplication = {
+
+    // The bounty id must be the same
+    val sameId = selfId == OUTPUTS(0).tokens(0)._1
+
+    // The deadline must be the same
+    val sameBlockLimit = selfBlockLimit == OUTPUTS(0).R4[Int].get
+
+    // The minimum contribution amount must be the same
+    val sameMinimumContribution = selfMinimumContribution == OUTPUTS(0).R5[Long].get
+
+    // The ERG/Token exchange rate must be same
+    val sameExchangeRate = selfExchangeRate == OUTPUTS(0).R7[Long].get
+
+    // The constants must be the same
+    val sameConstants = selfCreatorDetails == OUTPUTS(0).R8[Coll[Byte]].get
+
+    // The bounty metadata must be the same
+    val sameBountyContent = selfBountyMetadata == OUTPUTS(0).R9[Coll[Byte]].get
+
+    // The script must be the same
+    val sameScript = selfScript == OUTPUTS(0).propositionBytes
+
+    // The PFT must be the same
+    val sameBountyRewardToken = {
+      anyOf(Coll(
+        OUTPUTS(0).tokens.size == 1,
+        OUTPUTS(0).tokens(1)._1 == Coll[Byte](),
+        OUTPUTS(0).tokens(1)._1 == OUTPUTS(0).tokens(1)._1
+      ))
+    }
+
+    // Ensures that there are only one or two tokens in the contract (APT and PFT or only APT)
+    val noAddsOtherTokens = OUTPUTS(0).tokens.size == 1 || OUTPUTS(0).tokens.size == 2
+
+    // Verify that the output box is a valid copy of the input box
+    sameId && sameBlockLimit && sameMinimumContribution && sameExchangeRate && sameConstants && sameBountyContent && sameScript && sameBountyRewardToken && noAddsOtherTokens
+  }
+
+  val APTokenRemainsConstant = selfAPT == OUTPUTS(0).tokens(0)._2
+  val BountyRewardTokenRemainsConstant = {
+
+    val selfAmount = 
+      if (SELF.tokens.size == 1) 0L
+      else SELF.tokens(1)._2
+
+    val outAmount =
+      if (OUTPUTS(0).tokens.size == 1) 0L
+      else OUTPUTS(0).tokens(1)._2
+      
+    selfAmount == outAmount
+  }
+  val contributedCounterRemainsConstant = selfContributedCounter == OUTPUTS(0).R6[Coll[Long]].get(0)
+  val refundCounterRemainsConstant = selfRefundCounter == OUTPUTS(0).R6[Coll[Long]].get(1)
+  val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
+  val maintainValue = selfValue == OUTPUTS(0).value
+
+  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
+  
+  val isToBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
+
+    isSamePropBytes
+  }
+
+  val isFromBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, INPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
+    
+    isSamePropBytes
+  }
+
+  // Amount of PFT tokens added to the contract. In case of negative value, means that the token have been extracted.
+  val deltaPFTokenAdded = {
+
+    // Calculate the difference in token amounts
+    val selfTokens = 
+        if (SELF.tokens.size == 1) 0L // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+        else SELF.tokens(1)._2
+    
+    val outTokens = 
+        if (OUTPUTS(0).tokens.size == 1) 0L // There is going to be any PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+        else OUTPUTS(0).tokens(1)._2
+    
+    // Return the difference between output tokens and self tokens
+    outTokens - selfTokens
+  }
+
+  val minimumContributionReached = {
+    val minimumContributionThreshold = selfMinimumContribution
+    val contributedCounter = selfContributedCounter
+
+    contributedCounter >= minimumContributionThreshold
+  }
+
+  //  ACTIONS
+
+  // Validation for contributing to bounty
+  // > People should be allowed to exchange ERGs for contribution tokens until there are no more tokens left (even if the deadline has passed).
+  val isContributeToBounty = {
+
+    // Delta of tokens removed from the box
+    val deltaTokenRemoved = {
+      val outputAlreadyTokens = OUTPUTS(0).tokens(0)._2
+
+      selfAPT - outputAlreadyTokens
+    }
+
+    val onlyTemporaryUnavailableTokens = deltaTokenRemoved <= temporaryContributionTokenAmountOnContract(SELF)
+    
+    // Verify if the ERG amount matches the required exchange rate for the given token quantity
+    val correctExchange = {
+
+      // Delta of ergs added value from the contributor's ERG payment
+      val deltaValueAdded = OUTPUTS(0).value - selfValue
+      
+      // ERG / Token exchange rate
+      val exchangeRate = selfExchangeRate
+
+      deltaValueAdded == deltaTokenRemoved * exchangeRate
+    }
+
+    // Verify if the contribution counter (R6)._1 is increased in proportion of the tokens contributed.
+    val incrementContributionCounterCorrectly = {
+
+      // Calculate how much the contribution counter is incremented.
+      val counterIncrement = {
+          // Obtain the current and the next "contribution counter"
+          val selfAlreadyContributedCounter = selfContributedCounter
+          val outputAlreadyContributedCounter = OUTPUTS(0).R6[Coll[Long]].get(0)
+
+          outputAlreadyContributedCounter - selfAlreadyContributedCounter
+      }
+
+      allOf(Coll(
+        deltaTokenRemoved == counterIncrement,
+        counterIncrement > 0 // This ensures that the increment is positive, if not, the contribution action could be reversed.
+      ))
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                          // Replicate the contract will be needed always                
+      refundCounterRemainsConstant,               // The refund counter must be constant
+      auxiliarExchangeCounterRemainsConstant,          // The exchange counter must be constant because there is no exchange between APT -> PFT.
+      BountyRewardTokenRemainsConstant           // PFT needs to be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      onlyTemporaryUnavailableTokens,            // Since the amount of APT is equal to the emission amount of PFT (+1), not necessarily equal to the contract amount, it must be ensured that the APT contributed can be exchanged in the future.
+      correctExchange,                           // Ensures that the proportion between the APTs and value moved is the same following the R7 ratio.
+      incrementContributionCounterCorrectly      // Ensures that the R6 first value is incremented in proportion to the exchange value moved.
+    ))
+  }
+
+  // Validation for refunding contributions
+  val isRefundTokens = {
+
+    // > People should be allowed to exchange tokens for ERGs if and only if the deadline has passed and the minimum number of tokens has not been sold.
+    val canBeRefund = {
+      // The minimum number of tokens has not been sold.
+      val minimumNotReached = {
+          val minimumContributionsThreshold = selfMinimumContribution
+          val contributionCounter = selfContributedCounter
+
+          contributionCounter < minimumContributionsThreshold
+      }
+
+      // Condition to check if the current height is beyond the block limit
+      val afterBlockLimit = HEIGHT > selfBlockLimit
+      
+      afterBlockLimit && minimumNotReached
+    }
+
+    // Calculate the amount of tokens that the user adds to the contract.
+    val deltaTokenAdded = {
+      val outputAlreadyTokens = OUTPUTS(0).tokens(0)._2
+
+      outputAlreadyTokens - selfAPT
+    }
+
+    // Verify if the ERG amount matches the required exchange rate for the returned token quantity
+    val correctExchange = {
+      // Calculate the value returned from the contract to the user
+      val retiredValueFromTheContract = selfValue - OUTPUTS(0).value
+
+      // Calculate the value of the tokens added on the contract by the user
+      val addedTokensValue = deltaTokenAdded * selfExchangeRate
+
+      retiredValueFromTheContract == addedTokensValue
+    }
+
+    // Verify if the refund counter (R6)._2 is increased in proportion of the tokens refunded.
+    val incrementRefundCounterCorrectly = {
+
+      // Calculate how much the refund counter is incremented.
+      val counterIncrement = {
+          // Obtain the current and the next "refund counter"
+          val selfAlreadyRefundCounter = selfRefundCounter
+          val outputAlreadyRefundCounter = OUTPUTS(0).R6[Coll[Long]].get(1)
+
+          outputAlreadyRefundCounter - selfAlreadyRefundCounter
+      }
+
+      allOf(Coll(
+        deltaTokenAdded == counterIncrement,
+        counterIncrement > 0   // This ensures that the increment is positive, if not, the contribution action could be reversed.
+      ))
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                          // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,          // The contribution counter needs to be constant.
+      auxiliarExchangeCounterRemainsConstant,             // Exchange counter needs to be constant.
+      BountyRewardTokenRemainsConstant           // PFT needs to be constant.
+    ))
+
+    // The contract returns the equivalent ERG value for the returned tokens
+    allOf(Coll(
+      constants,
+      canBeRefund,                              // Ensures that the refund conditions are satisfied.
+      incrementRefundCounterCorrectly,            // Ensures increment the refund counter correctly in proportion with the exchanged amount.
+      correctExchange                             // Ensures that the value extracted and the APTs added are proportional following the R7 exchange ratio.
+    ))
+  }
+
+  // Validation for claiming bounty reward by solution provider
+  val isClaimBountyReward = {
+    // Anyone can claim the bounty reward and send it to the solution provider address.
+    
+    val minerFeeAmount = 1100000  // Pay miner fee with the extracted value allows to claim when solution provider address does not have ergs.
+    val devFee = `+dev_fee+`
+    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { selfValue - OUTPUTS(0).value } else { selfValue }
+    val devFeeAmount = extractedValue * devFee / 100
+    val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
+
+    val correctBountyAmount = OUTPUTS(1).value == bountyAmount
+
+    val correctDevFee = {
+      val OUT = OUTPUTS(2)
+
+      val isToDevAddress = {
+          val isSamePropBytes: Boolean = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
+          
+          isSamePropBytes
+      }
+
+      val isCorrectDevAmount = OUT.value == devFeeAmount
+
+      allOf(Coll(
+        isCorrectDevAmount,
+        isToDevAddress
+      ))
+    }
+
+    val endOrReplicate = {
+      val allFundsWithdrawn = extractedValue == selfValue
+      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+
+      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
+    }
+
+    val constants = allOf(Coll(
+      endOrReplicate,                             // Replicate the contract in case of partial withdrawal
+      contributedCounterRemainsConstant,          // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,   
+      APTokenRemainsConstant,                     // There is no need to modify the contribution token, so it must be constant
+      BountyRewardTokenRemainsConstant           // There is no need to modify the bounty reward token, so it must be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
+      isToBountyCreatorAddress,                   // Only to the bounty creator address (for now - later this will be to solution provider)
+      correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
+      correctBountyAmount               // Ensures the correct solution provider amount.
+    ))
+  }
+
+  // > Bounty creators may withdraw unused reward tokens from the contract at any time.
+  val isWithdrawUnusedRewardTokens = {
+    // Calculate that only unused reward tokens are withdrawn, otherwise there will be problems with the APT -> PFT exchange.
+    val onlyUnused = {
+
+      // The amount of PFT token that has been extracted from the contract
+      val extractedPFT = -deltaPFTokenAdded 
+
+      // Current APT tokens without the one used for bounty identification (remember that the APT amount is equal to the PFT emission amount + 1, because the 1 is to always be inside the contract)
+      val temporalTokens = temporaryContributionTokenAmountOnContract(SELF)
+
+      // Only can extract an amount sufficient lower to allow the exchange APT -> PFT
+      extractedPFT <= temporalTokens
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                         // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,         // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,
+      maintainValue,                             // The value of the contract must not change.
+      APTokenRemainsConstant                     // APT token must be constant.
+    ))
+
+    allOf(Coll(
+      constants,
+      isToBountyCreatorAddress,
+      deltaPFTokenAdded < 0,  // A negative value means that PFT are extracted.
+      onlyUnused  // Ensures that only extracts the token amount that has not been contributed for.
+    ))
+  }
+  
+  // > Bounty creators may add more reward tokens to the contract at any time.
+  val isAddRewardTokens = {
+
+    val constants = allOf(Coll(
+      isSelfReplication,                     // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,     // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,   
+      maintainValue,                                 
+      APTokenRemainsConstant                 // There is no need to modify the APT amount because the amount is established based on the PFT emission amount.
+    ))
+
+    if (INPUTS.size == 1) false  // To avoid access INPUTS(1) when there is no input, this could be resolved using actions.
+    else allOf(Coll(
+      constants,
+      isFromBountyCreatorAddress,   // Ensures that the tokens come from the bounty creator.
+      deltaPFTokenAdded > 0   // Ensures that the tokens are added.
+    ))
+  }
+  
+  // Exchange APT (token that identifies contributors used as temporary contribution token) with PFT (bounty reward token)
+  val isExchangeContributionTokens = {
+
+    val deltaTemporaryContributionTokenAdded = {
+      val selfTCT = SELF.tokens(0)._2
+      val outTCT = OUTPUTS(0).tokens(0)._2
+
+      outTCT - selfTCT
+    }
+
+    val correctExchange = {
+
+      val deltaBountyRewardTokenExtracted = -deltaPFTokenAdded
+      
+      allOf(Coll(
+        deltaTemporaryContributionTokenAdded == deltaBountyRewardTokenExtracted,
+        deltaTemporaryContributionTokenAdded > 0  // Ensures one way exchange (only send TCT and receive PFT)
+      ))
+    }
+
+    // Verify if the exchange counter (R6)._3 is increased in proportion of the tokens exchanged.
+    val incrementExchangeCounterCorrectly = {
+
+      // Calculate how much the counter is incremented.
+      val counterIncrement = {
+          val selfAlreadyCounter = selfAuxiliarExchangeCounter
+          val outputAlreadyExchangeCounter = OUTPUTS(0).R6[Coll[Long]].get(2)
+
+          outputAlreadyExchangeCounter - selfAlreadyCounter
+      }
+
+      deltaTemporaryContributionTokenAdded == counterIncrement
+    }
+
+    val endOrReplicate = {
+      val allFundsWithdrawn = selfValue == OUTPUTS(0).value
+      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+
+      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
+    }
+
+    val constants = allOf(Coll(
+      endOrReplicate,                                       // The contract could be finalized after this action, so it only checks self replication in case of partial withdrawal
+      contributedCounterRemainsConstant,                    // Contribution counter must be constant
+      refundCounterRemainsConstant,                         // Refund counter must be constant
+      maintainValue                                         // ERG value must be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      minimumContributionReached,                        // Only can exchange when the refund action is not, and will not be, possible
+      incrementExchangeCounterCorrectly,                 // Ensures that the exchange counter is incremented in proportion to the APT added and the PFT extracted.
+      correctExchange                                    // Ensures that the APT added and the PFT extracted amounts are equal.
+    ))
+  }
+
+  val actions = anyOf(Coll(
+    isContributeToBounty,
+    isRefundTokens,
+    isClaimBountyReward,
+    isWithdrawUnusedRewardTokens,
+    isAddRewardTokens,
+    isExchangeContributionTokens
+  ))
+
+  // Validates that the contract was built correctly. Otherwise, it cannot be used.
+  val correctBuild = {
+
+    val correctTokenId = 
+      if (SELF.tokens.size == 1) true 
+      else SELF.tokens(1)._1 == fromBase16("`+token_id+`")
+    
+    val onlyOneOrTwoTokens = SELF.tokens.size == 1 || SELF.tokens.size == 2
+
+    correctTokenId && onlyOneOrTwoTokens
+  }
+
+  sigmaProp(correctBuild && actions)
+}

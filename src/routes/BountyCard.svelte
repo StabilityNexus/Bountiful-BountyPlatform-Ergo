@@ -58,7 +58,7 @@
         </Card.Title>
         <div>
         {#if bounty.version}
-            <a href="https://github.com/StabilityNexus/Bountiful-BountyPlatform-Ergo/blob/main/contracts/bene_contract/contract_{bounty.version}.es" 
+            <a href="https://github.com/StabilityNexus/Bountiful-BountyPlatform-Ergo/blob/main/contracts/bounty_{bounty.version}.es" 
                target="_blank"
                class={badgeVariants({ variant: "outline" })}>
                Contract version: {bounty.version.replace("_", ".")}

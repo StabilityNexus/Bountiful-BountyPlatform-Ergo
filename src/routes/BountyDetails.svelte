@@ -417,7 +417,7 @@
             <div class="bounty-header">
                 <h1 class="bounty-title">{bounty.content.title}</h1>
                 <div class="bounty-badge" style="display: none;">
-        <a href="https://github.com/StabilityNexus/BenefactionPlatform-Ergo/blob/main/contracts/bene_contract/contract_{bounty.version}.es" target="_blank"
+        <a href="https://github.com/StabilityNexus/Bountiful-BountyPlatform-Ergo/blob/main/contracts/bounty-{bounty.version}.es" target="_blank"
             class={badgeVariants({ variant: "outline" })}>Contract version: {bounty.version.replace("_", ".")}</a>
                 </div>
             </div>
