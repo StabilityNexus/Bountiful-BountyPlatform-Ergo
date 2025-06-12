@@ -4,8 +4,8 @@
   import { sha256 } from "$lib/common/utils";
   import BountyList from "./BountyList.svelte";
 
-  const filter = async (bounty: Bounty) => bounty.constants.owner == $address
+  const filter = async (bounty: Bounty) => bounty.constants.creator == $address
 </script>
 <BountyList filterBounty={filter}>
-  My Projects
+  My Bounties
 </BountyList>

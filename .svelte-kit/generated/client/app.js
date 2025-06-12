@@ -4,16 +4,14 @@ export const nodes = [
 	() => import('./nodes/0'),
 	() => import('./nodes/1'),
 	() => import('./nodes/2'),
-	() => import('./nodes/3'),
-	() => import('./nodes/4')
+	() => import('./nodes/3')
 ];
 
 export const server_loads = [];
 
 export const dictionary = {
 		"/": [2],
-		"/bounty/[id]": [3],
-		"/dev": [4]
+		"/dev": [3]
 	};
 
 export const hooks = {

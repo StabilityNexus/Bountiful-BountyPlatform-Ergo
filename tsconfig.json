@@ -23,6 +23,6 @@
 		// "$app/*": ["./.svelte-kit/types/*"]  // Add this line
 	  }
 	},
-	"include": ["src/**/*", ".svelte-kit/types/**/*","types.d.ts"],  // Modified include
+	"include": ["src/**/*", ".svelte-kit/types/**/*","app.d.ts"],  // Modified include
 	"exclude": ["node_modules", "dist"]
   }

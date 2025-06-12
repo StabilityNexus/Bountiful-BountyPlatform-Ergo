@@ -20,297 +20,877 @@ export interface MintContractDetails {
     ergoTree: string;
 }
 
-function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number) {
+// function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number) {
+//     return `
+// {
+// // ===== Contract Description ===== //
+// // Name: Bountiful Bounty Platform Contract
+// // Description: Enables bounty creation, submission management, and creator-based reward distribution
+// // Version: 1.0.0
+// // Author: Bountiful Team
+
+// // ===== Box Contents ===== //
+// // Tokens
+// // 1. (id, amount)
+// //    BBT (Bountiful Bounty Token); Identifies the bounty and holds the allocated reward.
+// //    where:
+// //       id      The unique bounty identifier
+// //       amount  Always 1 for a single bounty.
+
+// // Registers
+// // R4: Int                  Block height (deadline) for the bounty
+// // R5: Long                 Minimum number of submissions required
+// // R6: Coll[Long]           [Total Submissions, Accepted Submissions, Rejected Submissions]
+// // R7: Long                 Reward amount in ERG
+// // R8: Coll[Byte]           Creator's public key (33 bytes)
+// // R9: Coll[Byte]           Encoded JSON containing: bounty metadata, submissions data, judgment data
+
+// // ===== Helper Functions ===== //
+// def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
+//   val prop: SigmaProp = propAndBox._1
+//   val box: Box = propAndBox._2
+//   val propBytes: Coll[Byte] = prop.propBytes
+//   val treeBytes: Coll[Byte] = box.propositionBytes
+
+//   if (treeBytes(0) == 0) {
+//       (treeBytes == propBytes)
+//   } else {
+//       // offset = 1 + <number of VLQ encoded bytes to store propositionBytes.size>
+//       val offset = if (treeBytes.size > 127) 3 else 2
+//       (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
+//   }
+// }
+
+// // ===== Box Data Extraction ===== //
+// val selfId = SELF.tokens(0)._1
+// val selfBountyToken = SELF.tokens(0)._2
+// val selfValue = SELF.value
+// val selfDeadline = SELF.R4[Int].get
+// val selfMinSubmissions = SELF.R5[Long].get
+// val selfSubmissionStats = SELF.R6[Coll[Long]].get
+// val selfTotalSubmissions = selfSubmissionStats(0)
+// val selfAcceptedSubmissions = selfSubmissionStats(1)
+// val selfRejectedSubmissions = selfSubmissionStats(2)
+// val selfRewardAmount = SELF.R7[Long].get
+// val creatorPubKey = SELF.R8[Coll[Byte]].get
+// val selfBountyData = SELF.R9[Coll[Byte]].get
+// val selfScript = SELF.propositionBytes
+
+// // Parse metadata - ensure sufficient data length
+// val submissionsRoot = if (selfBountyData.size >= 32) selfBountyData.slice(0, 32) else Coll[Byte]()
+// val judgmentsRoot = if (selfBountyData.size >= 64) selfBountyData.slice(32, 64) else Coll[Byte]()
+// val metadataRoot = if (selfBountyData.size >= 96) selfBountyData.slice(64, 96) else Coll[Byte]()
+
+// // Creator SigmaProp
+// val creatorProp = proveDlog(decodePoint(creatorPubKey))
+
+// // Output box reference for validation
+// val outBox = if (OUTPUTS.size > 0) OUTPUTS(0) else SELF
+
+// // ===== Box Replication Validation ===== //
+// val isBoxReplication = {
+//   val sameId = outBox.tokens.size > 0 && (selfId == outBox.tokens(0)._1 && selfBountyToken == outBox.tokens(0)._2)
+//   val sameDeadline = outBox.R4[Int].isDefined && selfDeadline == outBox.R4[Int].get
+//   val sameMinSubmissions = outBox.R5[Long].isDefined && selfMinSubmissions == outBox.R5[Long].get
+//   val sameCreatorPubKey = outBox.R8[Coll[Byte]].isDefined && creatorPubKey == outBox.R8[Coll[Byte]].get
+//   val sameScript = selfScript == outBox.propositionBytes
+  
+//   allOf(Coll(sameId, sameDeadline, sameMinSubmissions, sameCreatorPubKey, sameScript))
+// }
+
+// // ===== Actions ===== //
+
+// // Action: Submit a solution
+// val isSubmitSolution = {
+//   val beforeDeadline = HEIGHT <= selfDeadline
+
+//   val correctSubmissionIncrement = outBox.R6[Coll[Long]].isDefined && {
+//     val newStats = outBox.R6[Coll[Long]].get
+//     newStats.size >= 3 && {
+//       val newTotal = newStats(0)
+//       val newAccepted = newStats(1)
+//       val newRejected = newStats(2)
+//       newTotal == selfTotalSubmissions + 1 && 
+//       newAccepted == selfAcceptedSubmissions &&
+//       newRejected == selfRejectedSubmissions
+//     }
+//   }
+
+//   val updatedBountyData = outBox.R9[Coll[Byte]].isDefined && {
+//     val newBountyData = outBox.R9[Coll[Byte]].get
+//     newBountyData.size >= 96 && {
+//       val newSubmissionsRoot = newBountyData.slice(0, 32)
+//       submissionsRoot != newSubmissionsRoot &&
+//       newBountyData.slice(32, 64) == judgmentsRoot &&
+//       newBountyData.slice(64, 96) == metadataRoot
+//     }
+//   }
+  
+//   val valueUnchanged = selfValue == outBox.value
+  
+//   allOf(Coll(
+//     beforeDeadline,
+//     correctSubmissionIncrement,
+//     updatedBountyData,
+//     isBoxReplication,
+//     valueUnchanged
+//   ))
+// }
+
+// // Action: Judge a submission
+// val isJudgeSubmission = {
+//   val checkValidJudgeDataInputs = CONTEXT.dataInputs.size == 1 &&
+//                              CONTEXT.dataInputs(0).R4[Boolean].isDefined &&
+//                              CONTEXT.dataInputs(0).R5[Int].isDefined
+
+//   val decision = if (checkValidJudgeDataInputs) CONTEXT.dataInputs(0).R4[Boolean].get else false
+
+//   val correctJudgmentUpdateEval = if (checkValidJudgeDataInputs) {
+//       outBox.R6[Coll[Long]].isDefined && {
+//         val newStats = outBox.R6[Coll[Long]].get
+//         newStats.size >= 3 && {
+//           val newTotal = newStats(0)
+//           val newAccepted = newStats(1)
+//           val newRejected = newStats(2)
+//           val totalUnchanged = newTotal == selfTotalSubmissions
+//           val statsUpdated = if (decision) {
+//             newAccepted == selfAcceptedSubmissions + 1 && newRejected == selfRejectedSubmissions
+//           } else {
+//             newAccepted == selfAcceptedSubmissions && newRejected == selfRejectedSubmissions + 1
+//           }
+//           totalUnchanged && statsUpdated
+//         }
+//       }
+//   } else false
+
+//   val judgmentRecordedEval = if (checkValidJudgeDataInputs) {
+//       outBox.R9[Coll[Byte]].isDefined && {
+//         val newBountyData = outBox.R9[Coll[Byte]].get
+//         newBountyData.size >= 96 && {
+//           val newJudgmentsRoot = newBountyData.slice(32, 64)
+//           judgmentsRoot != newJudgmentsRoot &&
+//           newBountyData.slice(0, 32) == submissionsRoot &&
+//           newBountyData.slice(64, 96) == metadataRoot
+//         }
+//       }
+//   } else false
+  
+//   val valueUnchanged = selfValue == outBox.value
+
+//   val allBooleanChecks = allOf(Coll(
+//     checkValidJudgeDataInputs,
+//     correctJudgmentUpdateEval,
+//     judgmentRecordedEval,
+//     isBoxReplication,
+//     valueUnchanged
+//   ))
+  
+//   creatorProp && allBooleanChecks
+// }
+
+// // Action: Withdraw reward
+// val isWithdrawReward = {
+//   val checkValidWithdrawDataInputs = CONTEXT.dataInputs.size == 1 &&
+//                                 CONTEXT.dataInputs(0).R4[SigmaProp].isDefined &&
+//                                 CONTEXT.dataInputs(0).R5[Int].isDefined
+  
+//   val winnerAddress = if (checkValidWithdrawDataInputs) CONTEXT.dataInputs(0).R4[SigmaProp].get else creatorProp 
+//   val judgmentHeight = if (checkValidWithdrawDataInputs) CONTEXT.dataInputs(0).R5[Int].get else 0 
+
+//   val minerFee = 1000000L
+//   val platformFeePercent = ${dev_fee}L
+//   val platformFee = selfRewardAmount * platformFeePercent / 100L
+  
+//   val hasAcceptedSubmission = selfAcceptedSubmissions > 0L
+//   val hasMinimumSubmissions = selfTotalSubmissions >= selfMinSubmissions
+  
+//   val correctDistributionEval = if (checkValidWithdrawDataInputs) {
+//       OUTPUTS.size >= 3 && {
+//         val winnerBox = OUTPUTS(1)
+//         val devBox = OUTPUTS(2)
+//         val winnerAmount = selfRewardAmount - platformFee - minerFee
+//         val correctWinnerPayment = winnerBox.value == winnerAmount && 
+//                                 isSigmaPropEqualToBoxProp((winnerAddress, winnerBox))
+//         val correctDevFee = devBox.value == platformFee && 
+//                             blake2b256(devBox.propositionBytes) == fromBase16("${dev_fee_contract_bytes_hash}")
+//         correctWinnerPayment && correctDevFee
+//       }
+//   } else false
+    
+//   val disputePeriodPassedEval = if (checkValidWithdrawDataInputs) {
+//     val disputePeriod = 720 
+//     HEIGHT >= judgmentHeight + disputePeriod
+//   } else false
+    
+//   allOf(Coll(
+//     checkValidWithdrawDataInputs,
+//     hasAcceptedSubmission,
+//     hasMinimumSubmissions,
+//     correctDistributionEval,
+//     disputePeriodPassedEval
+//   ))
+// }
+
+// // Action: Refund bounty
+// val isRefundBounty = {
+//   val afterDeadline = HEIGHT > selfDeadline
+//   val canBeRefundedCond = selfTotalSubmissions < selfMinSubmissions || selfAcceptedSubmissions == 0L
+//   val correctRefundCond = OUTPUTS.size >= 2 && {
+//                         val creatorBox = OUTPUTS(1)
+//                         isSigmaPropEqualToBoxProp((creatorProp, creatorBox)) && creatorBox.value == selfValue
+//                       }
+//   allOf(Coll(afterDeadline, canBeRefundedCond, correctRefundCond))
+// }
+
+// // Action: Add more funds
+// val isAddMoreFunds = {
+//   val creatorSigned = creatorProp
+//   val onlyValueIncreased = outBox.value > selfValue && 
+//                           outBox.R7[Long].isDefined &&
+//                           outBox.R7[Long].get > selfRewardAmount &&
+//                           outBox.R7[Long].get - selfRewardAmount == outBox.value - selfValue
+//   val allAddFundsConditionsMet = allOf(Coll(onlyValueIncreased, isBoxReplication))
+//   creatorSigned && allAddFundsConditionsMet
+// }
+
+// // Action: Extend deadline
+// val isExtendDeadline = {
+//   val creatorSigned = creatorProp
+//   val onlyDeadlineExtended = outBox.R4[Int].isDefined &&
+//                             outBox.R4[Int].get > selfDeadline &&
+//                             HEIGHT <= selfDeadline
+//   val allExtendDeadlineConditionsMet = allOf(Coll(onlyDeadlineExtended, isBoxReplication))
+//   creatorSigned && allExtendDeadlineConditionsMet
+// }
+
+// // Action: Update metadata
+// val isUpdateMetadata = {
+//   val creatorSigned = creatorProp
+//   val onlyMetadataUpdated = outBox.R9[Coll[Byte]].isDefined && {
+//     val newBountyData = outBox.R9[Coll[Byte]].get
+//     newBountyData.size >= 96 && {
+//       val newMetadataRoot = newBountyData.slice(64, 96)
+//       metadataRoot != newMetadataRoot &&
+//       newBountyData.slice(0, 32) == submissionsRoot &&
+//       newBountyData.slice(32, 64) == judgmentsRoot
+//     }
+//   }
+//   val beforeDeadline = HEIGHT <= selfDeadline
+//   val allUpdateMetadataConditionsMet = allOf(Coll(onlyMetadataUpdated, beforeDeadline, isBoxReplication))
+//   creatorSigned && allUpdateMetadataConditionsMet
+// }
+
+// // Initial contract creation validation
+// val correctBuild = {
+//   val hasBountyToken = SELF.tokens.size >= 1 && selfBountyToken == 1L
+//   val initialStats = selfSubmissionStats.size >= 3 && 
+//                      selfTotalSubmissions == 0L && 
+//                      selfAcceptedSubmissions == 0L && 
+//                      selfRejectedSubmissions == 0L
+//   val sufficientFunds = SELF.value >= selfRewardAmount
+//   allOf(Coll(hasBountyToken, initialStats, sufficientFunds))
+// }
+
+// // All possible actions for the contract
+// val actions = anyOf(Coll(
+//     isSubmitSolution, 
+//     isJudgeSubmission, 
+//     isWithdrawReward, 
+//     isRefundBounty, 
+//     isAddMoreFunds, 
+//     isExtendDeadline, 
+//     isUpdateMetadata
+// ))
+
+// // Final contract condition
+// sigmaProp(correctBuild && actions)
+// }
+// `;
+// }
+
+function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string) {
     return `
 {
+
 // ===== Contract Description ===== //
 // Name: Bountiful Bounty Platform Contract
-// Description: Enables bounty creation, submission management, and creator-based reward distribution
+// Description: Enables bounty creation, contribution management, and reward distribution
 // Version: 1.0.0
 // Author: Bountiful Team
 
 // ===== Box Contents ===== //
 // Tokens
 // 1. (id, amount)
-//    BBT (Bountiful Bounty Token); Identifies the bounty and holds the allocated reward.
+//    APT (Bounty Contribution Token); Identifies contributors to the bounty and tracks their stake.
 //    where:
-//       id      The unique bounty identifier
-//       amount  Always 1 for a single bounty.
+//       id      The bounty identifier.
+//       amount  APT emission amount + 1
+// 2. (id, amount)
+//    PFT (Bounty Reward Token); Proof of contribution token that can be exchanged for rewards
+//    where:
+//       id      The bounty reward token identifier.
+//       amount  The number of tokens equivalent to the maximum amount of ERG the bounty aims to collect.
 
 // Registers
-// R4: Int                  Block height (deadline) for the bounty
-// R5: Long                 Minimum number of submissions required
-// R6: Coll[Long]           [Total Submissions, Accepted Submissions, Rejected Submissions]
-// R7: Long                 Reward amount in ERG
-// R8: Coll[Byte]           Creator's public key (33 bytes)
-// R9: Coll[Byte]           Encoded JSON containing: bounty metadata, submissions data, judgment data
+// R4: Int                   The block height until which contributions are allowed. After this height, bounty can be claimed or refunded.
+// R5: Long                  The minimum amount of ERG that must be contributed to make the bounty claimable.
+// R6: Coll[Long]           The total ERG contributed, the total ERG refunded, and the total APT exchanged for PFT so far.
+// R7: Long                  The ERG-to-token exchange rate (ERG per contribution token).
+// R8: Coll[Byte]            Base58-encoded JSON string containing the bounty creator's details.
+// R9: Coll[Byte]            Base58-encoded JSON string containing bounty metadata, including "title", "description", "requirements".
+
+// ===== Transactions ===== //
+// 1. Contribute to Bounty
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box containing ERG
+// Data Inputs: None
+// Outputs:
+//   - Updated Bounty Contract
+//   - Contributor box containing APT (contribution tokens)
+// Constraints:
+//   - Ensure accurate ERG-to-token exchange based on the exchange rate.
+//   - Update the contribution counter correctly.
+//   - Transfer the correct number of tokens to the contributor.
+//   - Validate that the contract is replicated correctly.
+
+// 2. Refund Contribution
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box containing APT tokens
+// Outputs:
+//   - Updated Bounty Contract  
+//   - Contributor box containing refunded ERG
+// Constraints:
+//   - Ensure the block height has surpassed the deadline (R4).
+//   - Ensure the minimum contribution threshold (R5) has not been reached.
+//   - Update the refund counter correctly.
+//   - Validate the ERG-to-token refund exchange.
+//   - Ensure the contract is replicated correctly.
+
+// 3. Claim Bounty Reward
+// Inputs:
+//   - Bounty Contract
+// Outputs:
+//   - Updated Bounty Contract (if partially claimed; otherwise, contract depletes funds completely)
+//   - Box containing ERG for the solution provider (100% - dev_fee).
+//   - Box containing ERG for the developer address (dev_fee).
+// Constraints:
+//   - Ensure the minimum contribution threshold (R5) has been reached.
+//   - Verify the correctness of the developer fee calculation.
+//   - Ensure either complete withdrawal or proper replication of the contract.
+
+// 4. Withdraw Unused Reward Tokens
+// Inputs:
+//   - Bounty Contract
+// Outputs:
+//   - Updated Bounty Contract
+//   - Box containing unused reward tokens sent to the bounty creator
+// Constraints:
+//   - Validate proper replication of the contract.
+//   - Ensure no ERG value changes during the transaction.
+//   - Handle unused tokens correctly.
+
+// 5. Add More Reward Tokens
+// Inputs:
+//   - Bounty Contract
+//   - Box containing tokens sent from the bounty creator
+// Outputs:
+//   - Updated Bounty Contract
+// Constraints:
+//   - Validate proper replication of the contract.
+//   - Ensure no ERG value changes during the transaction.
+//   - Handle the added tokens correctly.
+
+// 6. Exchange Contribution Tokens for Reward Tokens
+// Inputs:
+//   - Bounty Contract
+//   - Contributor box with APT tokens
+// Outputs:
+//   - Updated Bounty Contract
+//   - Contributor box with PFT tokens
+// Constraints:
+//   - Ensure minimum contribution threshold has been met
+//   - Validate 1:1 exchange ratio between APT and PFT
+//   - Update exchange counter correctly
+
+// ===== Compile Time Constants ===== //
+// $owner_addr: Base58 address of the bounty creator.
+// $dev_fee_contract_bytes_hash: Blake2b-256 base16 string hash of the dev fee contract proposition bytes.
+// $dev_fee: Percentage fee allocated to the developer (e.g., 5 for 5%).
+// $token_id: Unique string identifier for the bounty reward token.
+
+// ===== Context Variables ===== //
+// None
 
 // ===== Helper Functions ===== //
-def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
-  val prop: SigmaProp = propAndBox._1
-  val box: Box = propAndBox._2
-  val propBytes: Coll[Byte] = prop.propBytes
-  val treeBytes: Coll[Byte] = box.propositionBytes
+// None
 
-  if (treeBytes(0) == 0) {
-      (treeBytes == propBytes)
-  } else {
-      // offset = 1 + <number of VLQ encoded bytes to store propositionBytes.size>
-      val offset = if (treeBytes.size > 127) 3 else 2
-      (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
+  def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
+    // APT amount that serves as temporary contribution token that is currently on the contract available to exchange.
+
+    val bounty_reward_token_amount = if (contract.tokens.size == 1) 0L else contract.tokens(1)._2
+    val contributed                = contract.R6[Coll[Long]].get(0)
+    val refunded                   = contract.R6[Coll[Long]].get(1)
+    val exchanged                  = contract.R6[Coll[Long]].get(2)  // If the exchanged APT -> PFT amount is not accounted for, it will result in double-counting the contributed amount.
+
+    bounty_reward_token_amount - contributed + refunded + exchanged
   }
-}
 
-// ===== Box Data Extraction ===== //
-val selfId = SELF.tokens(0)._1
-val selfBountyToken = SELF.tokens(0)._2
-val selfValue = SELF.value
-val selfDeadline = SELF.R4[Int].get
-val selfMinSubmissions = SELF.R5[Long].get
-val selfSubmissionStats = SELF.R6[Coll[Long]].get
-val selfTotalSubmissions = selfSubmissionStats(0)
-val selfAcceptedSubmissions = selfSubmissionStats(1)
-val selfRejectedSubmissions = selfSubmissionStats(2)
-val selfRewardAmount = SELF.R7[Long].get
-val creatorPubKey = SELF.R8[Coll[Byte]].get
-val selfBountyData = SELF.R9[Coll[Byte]].get
-val selfScript = SELF.propositionBytes
+  def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
 
-// Parse metadata - ensure sufficient data length
-val submissionsRoot = if (selfBountyData.size >= 32) selfBountyData.slice(0, 32) else Coll[Byte]()
-val judgmentsRoot = if (selfBountyData.size >= 64) selfBountyData.slice(32, 64) else Coll[Byte]()
-val metadataRoot = if (selfBountyData.size >= 96) selfBountyData.slice(64, 96) else Coll[Byte]()
+    val prop: SigmaProp = propAndBox._1
+    val box: Box = propAndBox._2
 
-// Creator SigmaProp
-val creatorProp = proveDlog(decodePoint(creatorPubKey))
+    val propBytes: Coll[Byte] = prop.propBytes
+    val treeBytes: Coll[Byte] = box.propositionBytes
 
-// Output box reference for validation
-val outBox = if (OUTPUTS.size > 0) OUTPUTS(0) else SELF
+    if (treeBytes(0) == 0) {
 
-// ===== Box Replication Validation ===== //
-val isBoxReplication = {
-  val sameId = outBox.tokens.size > 0 && (selfId == outBox.tokens(0)._1 && selfBountyToken == outBox.tokens(0)._2)
-  val sameDeadline = outBox.R4[Int].isDefined && selfDeadline == outBox.R4[Int].get
-  val sameMinSubmissions = outBox.R5[Long].isDefined && selfMinSubmissions == outBox.R5[Long].get
-  val sameCreatorPubKey = outBox.R8[Coll[Byte]].isDefined && creatorPubKey == outBox.R8[Coll[Byte]].get
-  val sameScript = selfScript == outBox.propositionBytes
-  
-  allOf(Coll(sameId, sameDeadline, sameMinSubmissions, sameCreatorPubKey, sameScript))
-}
+        (treeBytes == propBytes)
 
-// ===== Actions ===== //
+    } else {
 
-// Action: Submit a solution
-val isSubmitSolution = {
-  val beforeDeadline = HEIGHT <= selfDeadline
+        // offset = 1 + <number of VLQ encoded bytes to store propositionBytes.size>
+        val offset = if (treeBytes.size > 127) 3 else 2
+        (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
 
-  val correctSubmissionIncrement = outBox.R6[Coll[Long]].isDefined && {
-    val newStats = outBox.R6[Coll[Long]].get
-    newStats.size >= 3 && {
-      val newTotal = newStats(0)
-      val newAccepted = newStats(1)
-      val newRejected = newStats(2)
-      newTotal == selfTotalSubmissions + 1 && 
-      newAccepted == selfAcceptedSubmissions &&
-      newRejected == selfRejectedSubmissions
     }
+
   }
 
-  val updatedBountyData = outBox.R9[Coll[Byte]].isDefined && {
-    val newBountyData = outBox.R9[Coll[Byte]].get
-    newBountyData.size >= 96 && {
-      val newSubmissionsRoot = newBountyData.slice(0, 32)
-      submissionsRoot != newSubmissionsRoot &&
-      newBountyData.slice(32, 64) == judgmentsRoot &&
-      newBountyData.slice(64, 96) == metadataRoot
+  val selfId = SELF.tokens(0)._1
+  val selfAPT = SELF.tokens(0)._2
+  val selfValue = SELF.value
+  val selfBlockLimit = SELF.R4[Int].get
+  val selfMinimumContribution = SELF.R5[Long].get
+  val selfContributedCounter = SELF.R6[Coll[Long]].get(0)
+  val selfRefundCounter = SELF.R6[Coll[Long]].get(1)
+  val selfAuxiliarExchangeCounter = SELF.R6[Coll[Long]].get(2)
+  val selfExchangeRate = SELF.R7[Long].get
+  val selfCreatorDetails = SELF.R8[Coll[Byte]].get
+  val selfBountyMetadata = SELF.R9[Coll[Byte]].get
+  val selfScript = SELF.propositionBytes
+
+  // Validation of the box replication process
+  val isSelfReplication = {
+
+    // The bounty id must be the same
+    val sameId = selfId == OUTPUTS(0).tokens(0)._1
+
+    // The deadline must be the same
+    val sameBlockLimit = selfBlockLimit == OUTPUTS(0).R4[Int].get
+
+    // The minimum contribution amount must be the same
+    val sameMinimumContribution = selfMinimumContribution == OUTPUTS(0).R5[Long].get
+
+    // The ERG/Token exchange rate must be same
+    val sameExchangeRate = selfExchangeRate == OUTPUTS(0).R7[Long].get
+
+    // The constants must be the same
+    val sameConstants = selfCreatorDetails == OUTPUTS(0).R8[Coll[Byte]].get
+
+    // The bounty metadata must be the same
+    val sameBountyContent = selfBountyMetadata == OUTPUTS(0).R9[Coll[Byte]].get
+
+    // The script must be the same
+    val sameScript = selfScript == OUTPUTS(0).propositionBytes
+
+    // The PFT must be the same
+    val sameBountyRewardToken = {
+      anyOf(Coll(
+        OUTPUTS(0).tokens.size == 1,
+        OUTPUTS(0).tokens(1)._1 == Coll[Byte](),
+        OUTPUTS(0).tokens(1)._1 == OUTPUTS(0).tokens(1)._1
+      ))
     }
+
+    // Ensures that there are only one or two tokens in the contract (APT and PFT or only APT)
+    val noAddsOtherTokens = OUTPUTS(0).tokens.size == 1 || OUTPUTS(0).tokens.size == 2
+
+    // Verify that the output box is a valid copy of the input box
+    sameId && sameBlockLimit && sameMinimumContribution && sameExchangeRate && sameConstants && sameBountyContent && sameScript && sameBountyRewardToken && noAddsOtherTokens
   }
-  
-  val valueUnchanged = selfValue == outBox.value
-  
-  allOf(Coll(
-    beforeDeadline,
-    correctSubmissionIncrement,
-    updatedBountyData,
-    isBoxReplication,
-    valueUnchanged
-  ))
-}
 
-// Action: Judge a submission
-val isJudgeSubmission = {
-  val checkValidJudgeDataInputs = CONTEXT.dataInputs.size == 1 &&
-                             CONTEXT.dataInputs(0).R4[Boolean].isDefined &&
-                             CONTEXT.dataInputs(0).R5[Int].isDefined
+  val APTokenRemainsConstant = selfAPT == OUTPUTS(0).tokens(0)._2
+  val BountyRewardTokenRemainsConstant = {
 
-  val decision = if (checkValidJudgeDataInputs) CONTEXT.dataInputs(0).R4[Boolean].get else false
+    val selfAmount = 
+      if (SELF.tokens.size == 1) 0L
+      else SELF.tokens(1)._2
 
-  val correctJudgmentUpdateEval = if (checkValidJudgeDataInputs) {
-      outBox.R6[Coll[Long]].isDefined && {
-        val newStats = outBox.R6[Coll[Long]].get
-        newStats.size >= 3 && {
-          val newTotal = newStats(0)
-          val newAccepted = newStats(1)
-          val newRejected = newStats(2)
-          val totalUnchanged = newTotal == selfTotalSubmissions
-          val statsUpdated = if (decision) {
-            newAccepted == selfAcceptedSubmissions + 1 && newRejected == selfRejectedSubmissions
-          } else {
-            newAccepted == selfAcceptedSubmissions && newRejected == selfRejectedSubmissions + 1
-          }
-          totalUnchanged && statsUpdated
-        }
-      }
-  } else false
+    val outAmount =
+      if (OUTPUTS(0).tokens.size == 1) 0L
+      else OUTPUTS(0).tokens(1)._2
+      
+    selfAmount == outAmount
+  }
+  val contributedCounterRemainsConstant = selfContributedCounter == OUTPUTS(0).R6[Coll[Long]].get(0)
+  val refundCounterRemainsConstant = selfRefundCounter == OUTPUTS(0).R6[Coll[Long]].get(1)
+  val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
+  val maintainValue = selfValue == OUTPUTS(0).value
 
-  val judgmentRecordedEval = if (checkValidJudgeDataInputs) {
-      outBox.R9[Coll[Byte]].isDefined && {
-        val newBountyData = outBox.R9[Coll[Byte]].get
-        newBountyData.size >= 96 && {
-          val newJudgmentsRoot = newBountyData.slice(32, 64)
-          judgmentsRoot != newJudgmentsRoot &&
-          newBountyData.slice(0, 32) == submissionsRoot &&
-          newBountyData.slice(64, 96) == metadataRoot
-        }
-      }
-  } else false
+  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
   
-  val valueUnchanged = selfValue == outBox.value
+  val isToBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
 
-  val allBooleanChecks = allOf(Coll(
-    checkValidJudgeDataInputs,
-    correctJudgmentUpdateEval,
-    judgmentRecordedEval,
-    isBoxReplication,
-    valueUnchanged
-  ))
-  
-  creatorProp && allBooleanChecks
-}
+    isSamePropBytes
+  }
 
-// Action: Withdraw reward
-val isWithdrawReward = {
-  val checkValidWithdrawDataInputs = CONTEXT.dataInputs.size == 1 &&
-                                CONTEXT.dataInputs(0).R4[SigmaProp].isDefined &&
-                                CONTEXT.dataInputs(0).R5[Int].isDefined
-  
-  val winnerAddress = if (checkValidWithdrawDataInputs) CONTEXT.dataInputs(0).R4[SigmaProp].get else creatorProp 
-  val judgmentHeight = if (checkValidWithdrawDataInputs) CONTEXT.dataInputs(0).R5[Int].get else 0 
-
-  val minerFee = 1000000L
-  val platformFeePercent = ${dev_fee}L
-  val platformFee = selfRewardAmount * platformFeePercent / 100L
-  
-  val hasAcceptedSubmission = selfAcceptedSubmissions > 0L
-  val hasMinimumSubmissions = selfTotalSubmissions >= selfMinSubmissions
-  
-  val correctDistributionEval = if (checkValidWithdrawDataInputs) {
-      OUTPUTS.size >= 3 && {
-        val winnerBox = OUTPUTS(1)
-        val devBox = OUTPUTS(2)
-        val winnerAmount = selfRewardAmount - platformFee - minerFee
-        val correctWinnerPayment = winnerBox.value == winnerAmount && 
-                                isSigmaPropEqualToBoxProp((winnerAddress, winnerBox))
-        val correctDevFee = devBox.value == platformFee && 
-                            blake2b256(devBox.propositionBytes) == fromBase16("${dev_fee_contract_bytes_hash}")
-        correctWinnerPayment && correctDevFee
-      }
-  } else false
+  val isFromBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, INPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
     
-  val disputePeriodPassedEval = if (checkValidWithdrawDataInputs) {
-    val disputePeriod = 720 
-    HEIGHT >= judgmentHeight + disputePeriod
-  } else false
-    
-  allOf(Coll(
-    checkValidWithdrawDataInputs,
-    hasAcceptedSubmission,
-    hasMinimumSubmissions,
-    correctDistributionEval,
-    disputePeriodPassedEval
-  ))
-}
-
-// Action: Refund bounty
-val isRefundBounty = {
-  val afterDeadline = HEIGHT > selfDeadline
-  val canBeRefundedCond = selfTotalSubmissions < selfMinSubmissions || selfAcceptedSubmissions == 0L
-  val correctRefundCond = OUTPUTS.size >= 2 && {
-                        val creatorBox = OUTPUTS(1)
-                        isSigmaPropEqualToBoxProp((creatorProp, creatorBox)) && creatorBox.value == selfValue
-                      }
-  allOf(Coll(afterDeadline, canBeRefundedCond, correctRefundCond))
-}
-
-// Action: Add more funds
-val isAddMoreFunds = {
-  val creatorSigned = creatorProp
-  val onlyValueIncreased = outBox.value > selfValue && 
-                          outBox.R7[Long].isDefined &&
-                          outBox.R7[Long].get > selfRewardAmount &&
-                          outBox.R7[Long].get - selfRewardAmount == outBox.value - selfValue
-  val allAddFundsConditionsMet = allOf(Coll(onlyValueIncreased, isBoxReplication))
-  creatorSigned && allAddFundsConditionsMet
-}
-
-// Action: Extend deadline
-val isExtendDeadline = {
-  val creatorSigned = creatorProp
-  val onlyDeadlineExtended = outBox.R4[Int].isDefined &&
-                            outBox.R4[Int].get > selfDeadline &&
-                            HEIGHT <= selfDeadline
-  val allExtendDeadlineConditionsMet = allOf(Coll(onlyDeadlineExtended, isBoxReplication))
-  creatorSigned && allExtendDeadlineConditionsMet
-}
-
-// Action: Update metadata
-val isUpdateMetadata = {
-  val creatorSigned = creatorProp
-  val onlyMetadataUpdated = outBox.R9[Coll[Byte]].isDefined && {
-    val newBountyData = outBox.R9[Coll[Byte]].get
-    newBountyData.size >= 96 && {
-      val newMetadataRoot = newBountyData.slice(64, 96)
-      metadataRoot != newMetadataRoot &&
-      newBountyData.slice(0, 32) == submissionsRoot &&
-      newBountyData.slice(32, 64) == judgmentsRoot
-    }
+    isSamePropBytes
   }
-  val beforeDeadline = HEIGHT <= selfDeadline
-  val allUpdateMetadataConditionsMet = allOf(Coll(onlyMetadataUpdated, beforeDeadline, isBoxReplication))
-  creatorSigned && allUpdateMetadataConditionsMet
+
+  // Amount of PFT tokens added to the contract. In case of negative value, means that the token have been extracted.
+  val deltaPFTokenAdded = {
+
+    // Calculate the difference in token amounts
+    val selfTokens = 
+        if (SELF.tokens.size == 1) 0L // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+        else SELF.tokens(1)._2
+    
+    val outTokens = 
+        if (OUTPUTS(0).tokens.size == 1) 0L // There is going to be any PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+        else OUTPUTS(0).tokens(1)._2
+    
+    // Return the difference between output tokens and self tokens
+    outTokens - selfTokens
+  }
+
+  val minimumContributionReached = {
+    val minimumContributionThreshold = selfMinimumContribution
+    val contributedCounter = selfContributedCounter
+
+    contributedCounter >= minimumContributionThreshold
+  }
+
+  //  ACTIONS
+
+  // Validation for contributing to bounty
+  // > People should be allowed to exchange ERGs for contribution tokens until there are no more tokens left (even if the deadline has passed).
+  val isContributeToBounty = {
+
+    // Delta of tokens removed from the box
+    val deltaTokenRemoved = {
+      val outputAlreadyTokens = OUTPUTS(0).tokens(0)._2
+
+      selfAPT - outputAlreadyTokens
+    }
+
+    val onlyTemporaryUnavailableTokens = deltaTokenRemoved <= temporaryContributionTokenAmountOnContract(SELF)
+    
+    // Verify if the ERG amount matches the required exchange rate for the given token quantity
+    val correctExchange = {
+
+      // Delta of ergs added value from the contributor's ERG payment
+      val deltaValueAdded = OUTPUTS(0).value - selfValue
+      
+      // ERG / Token exchange rate
+      val exchangeRate = selfExchangeRate
+
+      deltaValueAdded == deltaTokenRemoved * exchangeRate
+    }
+
+    // Verify if the contribution counter (R6)._1 is increased in proportion of the tokens contributed.
+    val incrementContributionCounterCorrectly = {
+
+      // Calculate how much the contribution counter is incremented.
+      val counterIncrement = {
+          // Obtain the current and the next "contribution counter"
+          val selfAlreadyContributedCounter = selfContributedCounter
+          val outputAlreadyContributedCounter = OUTPUTS(0).R6[Coll[Long]].get(0)
+
+          outputAlreadyContributedCounter - selfAlreadyContributedCounter
+      }
+
+      allOf(Coll(
+        deltaTokenRemoved == counterIncrement,
+        counterIncrement > 0 // This ensures that the increment is positive, if not, the contribution action could be reversed.
+      ))
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                          // Replicate the contract will be needed always                
+      refundCounterRemainsConstant,               // The refund counter must be constant
+      auxiliarExchangeCounterRemainsConstant,          // The exchange counter must be constant because there is no exchange between APT -> PFT.
+      BountyRewardTokenRemainsConstant           // PFT needs to be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      onlyTemporaryUnavailableTokens,            // Since the amount of APT is equal to the emission amount of PFT (+1), not necessarily equal to the contract amount, it must be ensured that the APT contributed can be exchanged in the future.
+      correctExchange,                           // Ensures that the proportion between the APTs and value moved is the same following the R7 ratio.
+      incrementContributionCounterCorrectly      // Ensures that the R6 first value is incremented in proportion to the exchange value moved.
+    ))
+  }
+
+  // Validation for refunding contributions
+  val isRefundTokens = {
+
+    // > People should be allowed to exchange tokens for ERGs if and only if the deadline has passed and the minimum number of tokens has not been sold.
+    val canBeRefund = {
+      // The minimum number of tokens has not been sold.
+      val minimumNotReached = {
+          val minimumContributionsThreshold = selfMinimumContribution
+          val contributionCounter = selfContributedCounter
+
+          contributionCounter < minimumContributionsThreshold
+      }
+
+      // Condition to check if the current height is beyond the block limit
+      val afterBlockLimit = HEIGHT > selfBlockLimit
+      
+      afterBlockLimit && minimumNotReached
+    }
+
+    // Calculate the amount of tokens that the user adds to the contract.
+    val deltaTokenAdded = {
+      val outputAlreadyTokens = OUTPUTS(0).tokens(0)._2
+
+      outputAlreadyTokens - selfAPT
+    }
+
+    // Verify if the ERG amount matches the required exchange rate for the returned token quantity
+    val correctExchange = {
+      // Calculate the value returned from the contract to the user
+      val retiredValueFromTheContract = selfValue - OUTPUTS(0).value
+
+      // Calculate the value of the tokens added on the contract by the user
+      val addedTokensValue = deltaTokenAdded * selfExchangeRate
+
+      retiredValueFromTheContract == addedTokensValue
+    }
+
+    // Verify if the refund counter (R6)._2 is increased in proportion of the tokens refunded.
+    val incrementRefundCounterCorrectly = {
+
+      // Calculate how much the refund counter is incremented.
+      val counterIncrement = {
+          // Obtain the current and the next "refund counter"
+          val selfAlreadyRefundCounter = selfRefundCounter
+          val outputAlreadyRefundCounter = OUTPUTS(0).R6[Coll[Long]].get(1)
+
+          outputAlreadyRefundCounter - selfAlreadyRefundCounter
+      }
+
+      allOf(Coll(
+        deltaTokenAdded == counterIncrement,
+        counterIncrement > 0   // This ensures that the increment is positive, if not, the contribution action could be reversed.
+      ))
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                          // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,          // The contribution counter needs to be constant.
+      auxiliarExchangeCounterRemainsConstant,             // Exchange counter needs to be constant.
+      BountyRewardTokenRemainsConstant           // PFT needs to be constant.
+    ))
+
+    // The contract returns the equivalent ERG value for the returned tokens
+    allOf(Coll(
+      constants,
+      canBeRefund,                              // Ensures that the refund conditions are satisfied.
+      incrementRefundCounterCorrectly,            // Ensures increment the refund counter correctly in proportion with the exchanged amount.
+      correctExchange                             // Ensures that the value extracted and the APTs added are proportional following the R7 exchange ratio.
+    ))
+  }
+
+  // Validation for claiming bounty reward by solution provider
+  val isClaimBountyReward = {
+    // Anyone can claim the bounty reward and send it to the solution provider address.
+    
+    val minerFeeAmount = 1100000  // Pay miner fee with the extracted value allows to claim when solution provider address does not have ergs.
+    val devFee = `+dev_fee+`
+    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { selfValue - OUTPUTS(0).value } else { selfValue }
+    val devFeeAmount = extractedValue * devFee / 100
+    val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
+
+    val correctBountyAmount = OUTPUTS(1).value == bountyAmount
+
+    val correctDevFee = {
+      val OUT = OUTPUTS(2)
+
+      val isToDevAddress = {
+          val isSamePropBytes: Boolean = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
+          
+          isSamePropBytes
+      }
+
+      val isCorrectDevAmount = OUT.value == devFeeAmount
+
+      allOf(Coll(
+        isCorrectDevAmount,
+        isToDevAddress
+      ))
+    }
+
+    val endOrReplicate = {
+      val allFundsWithdrawn = extractedValue == selfValue
+      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+
+      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
+    }
+
+    val constants = allOf(Coll(
+      endOrReplicate,                             // Replicate the contract in case of partial withdrawal
+      contributedCounterRemainsConstant,          // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,   
+      APTokenRemainsConstant,                     // There is no need to modify the contribution token, so it must be constant
+      BountyRewardTokenRemainsConstant           // There is no need to modify the bounty reward token, so it must be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
+      isToBountyCreatorAddress,                   // Only to the bounty creator address (for now - later this will be to solution provider)
+      correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
+      correctBountyAmount               // Ensures the correct solution provider amount.
+    ))
+  }
+
+  // > Bounty creators may withdraw unused reward tokens from the contract at any time.
+  val isWithdrawUnusedRewardTokens = {
+    // Calculate that only unused reward tokens are withdrawn, otherwise there will be problems with the APT -> PFT exchange.
+    val onlyUnused = {
+
+      // The amount of PFT token that has been extracted from the contract
+      val extractedPFT = -deltaPFTokenAdded 
+
+      // Current APT tokens without the one used for bounty identification (remember that the APT amount is equal to the PFT emission amount + 1, because the 1 is to always be inside the contract)
+      val temporalTokens = temporaryContributionTokenAmountOnContract(SELF)
+
+      // Only can extract an amount sufficient lower to allow the exchange APT -> PFT
+      extractedPFT <= temporalTokens
+    }
+
+    val constants = allOf(Coll(
+      isSelfReplication,                         // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,         // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,
+      maintainValue,                             // The value of the contract must not change.
+      APTokenRemainsConstant                     // APT token must be constant.
+    ))
+
+    allOf(Coll(
+      constants,
+      isToBountyCreatorAddress,
+      deltaPFTokenAdded < 0,  // A negative value means that PFT are extracted.
+      onlyUnused  // Ensures that only extracts the token amount that has not been contributed for.
+    ))
+  }
+  
+  // > Bounty creators may add more reward tokens to the contract at any time.
+  val isAddRewardTokens = {
+
+    val constants = allOf(Coll(
+      isSelfReplication,                     // Replicate the contract will be needed always            
+      contributedCounterRemainsConstant,     // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,   
+      maintainValue,                                 
+      APTokenRemainsConstant                 // There is no need to modify the APT amount because the amount is established based on the PFT emission amount.
+    ))
+
+    if (INPUTS.size == 1) false  // To avoid access INPUTS(1) when there is no input, this could be resolved using actions.
+    else allOf(Coll(
+      constants,
+      isFromBountyCreatorAddress,   // Ensures that the tokens come from the bounty creator.
+      deltaPFTokenAdded > 0   // Ensures that the tokens are added.
+    ))
+  }
+  
+  // Exchange APT (token that identifies contributors used as temporary contribution token) with PFT (bounty reward token)
+  val isExchangeContributionTokens = {
+
+    val deltaTemporaryContributionTokenAdded = {
+      val selfTCT = SELF.tokens(0)._2
+      val outTCT = OUTPUTS(0).tokens(0)._2
+
+      outTCT - selfTCT
+    }
+
+    val correctExchange = {
+
+      val deltaBountyRewardTokenExtracted = -deltaPFTokenAdded
+      
+      allOf(Coll(
+        deltaTemporaryContributionTokenAdded == deltaBountyRewardTokenExtracted,
+        deltaTemporaryContributionTokenAdded > 0  // Ensures one way exchange (only send TCT and receive PFT)
+      ))
+    }
+
+    // Verify if the exchange counter (R6)._3 is increased in proportion of the tokens exchanged.
+    val incrementExchangeCounterCorrectly = {
+
+      // Calculate how much the counter is incremented.
+      val counterIncrement = {
+          val selfAlreadyCounter = selfAuxiliarExchangeCounter
+          val outputAlreadyExchangeCounter = OUTPUTS(0).R6[Coll[Long]].get(2)
+
+          outputAlreadyExchangeCounter - selfAlreadyCounter
+      }
+
+      deltaTemporaryContributionTokenAdded == counterIncrement
+    }
+
+    val endOrReplicate = {
+      val allFundsWithdrawn = selfValue == OUTPUTS(0).value
+      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+
+      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
+    }
+
+    val constants = allOf(Coll(
+      endOrReplicate,                                       // The contract could be finalized after this action, so it only checks self replication in case of partial withdrawal
+      contributedCounterRemainsConstant,                    // Contribution counter must be constant
+      refundCounterRemainsConstant,                         // Refund counter must be constant
+      maintainValue                                         // ERG value must be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      minimumContributionReached,                        // Only can exchange when the refund action is not, and will not be, possible
+      incrementExchangeCounterCorrectly,                 // Ensures that the exchange counter is incremented in proportion to the APT added and the PFT extracted.
+      correctExchange                                    // Ensures that the APT added and the PFT extracted amounts are equal.
+    ))
+  }
+
+  val actions = anyOf(Coll(
+    isContributeToBounty,
+    isRefundTokens,
+    isClaimBountyReward,
+    isWithdrawUnusedRewardTokens,
+    isAddRewardTokens,
+    isExchangeContributionTokens
+  ))
+
+  // Validates that the contract was built correctly. Otherwise, it cannot be used.
+  val correctBuild = {
+
+    val correctTokenId = 
+      if (SELF.tokens.size == 1) true 
+      else SELF.tokens(1)._1 == fromBase16("`+token_id+`")
+    
+    val onlyOneOrTwoTokens = SELF.tokens.size == 1 || SELF.tokens.size == 2
+
+    correctTokenId && onlyOneOrTwoTokens
+  }
+
+  sigmaProp(correctBuild && actions)
+}
+  `
 }
 
-// Initial contract creation validation
-val correctBuild = {
-  val hasBountyToken = SELF.tokens.size >= 1 && selfBountyToken == 1L
-  val initialStats = selfSubmissionStats.size >= 3 && 
-                     selfTotalSubmissions == 0L && 
-                     selfAcceptedSubmissions == 0L && 
-                     selfRejectedSubmissions == 0L
-  val sufficientFunds = SELF.value >= selfRewardAmount
-  allOf(Coll(hasBountyToken, initialStats, sufficientFunds))
-}
-
-// All possible actions for the contract
-val actions = anyOf(Coll(
-    isSubmitSolution, 
-    isJudgeSubmission, 
-    isWithdrawReward, 
-    isRefundBounty, 
-    isAddMoreFunds, 
-    isExtendDeadline, 
-    isUpdateMetadata
-))
-
-// Final contract condition
-sigmaProp(correctBuild && actions)
-}
-`;
-}
-
-function generate_contract_v1_1(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number) {
+function generate_contract_v1_1(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string) {
     // Placeholder for v1.1 - implement as needed
-    return generate_contract_v1_0(owner_addr, dev_fee_contract_bytes_hash, dev_fee);
+    return generate_contract_v1_0(owner_addr, dev_fee_contract_bytes_hash, dev_fee, token_id);
 }
 
 function handle_contract_generator(version: contract_version) {
@@ -331,19 +911,19 @@ function handle_contract_generator(version: contract_version) {
 export function get_address(constants: ConstantContent, version: contract_version) {
 
     // In case that dev_hash is undefined, we try to use the current contract hash. But the tx will fail if the hash is different.
-    let contract = handle_contract_generator(version)(constants.owner, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee);
+    let contract = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id);
     let ergoTree = compile(contract, {version: 1, network: network_id})
 
     let network = (network_id == "mainnet") ? Network.Mainnet : Network.Testnet;
     return ergoTree.toAddress(network).toString();
 }
 
-export function get_bounty_contract_details(constants: ConstantContent, version: contract_version): BountyContractDetails {
+export function get_bounty_contract_details(constants: ConstantContent, version: contract_version, token_id: string): BountyContractDetails {
     // Log the structure of ConstantContent for review during execution
     console.log("ConstantContent structure received by get_bounty_contract_details:", JSON.stringify(constants, null, 2));
 
     // In case that dev_hash is undefined, we try to use the current contract hash. But the tx will fail if the hash is different.
-    let contract_script = handle_contract_generator(version)(constants.owner, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee);
+    let contract_script = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id);
     // Ensure compile option version: 1 is used for the main bounty contract script
     let ergoTree = compile(contract_script, {version: 1, network: network_id});
 
@@ -352,7 +932,6 @@ export function get_bounty_contract_details(constants: ConstantContent, version:
     const ergoTreeHex = ergoTree.toHex();
     return { address, ergoTree: ergoTreeHex };
 }
-
 export function get_template_hash(version: contract_version): string {
     try {
         const random_mainnet_addr = "9f3iPJTiciBYA6DnTeGy98CvrwyEhiP7wNrhDrQ1QeKPRhTmaqQ";
@@ -360,9 +939,9 @@ export function get_template_hash(version: contract_version): string {
         const random_addr = network_id === "mainnet" ? random_mainnet_addr : random_testnet_addr;
         const random_dev_contract = uint8ArrayToHex(blake2b256("9a3d2f6b"));
 
-        const contract = handle_contract_generator(version)(random_addr, random_dev_contract, 5);
+        const contract = handle_contract_generator(version)(random_addr, random_dev_contract, 5, "");
         const ergoTree = compile(contract, {
-            version: 1, // Changed to version 1 for consistency if main script features require it
+            version: 1, 
             network: network_id
         });
         
@@ -377,10 +956,10 @@ export function get_template_hash(version: contract_version): string {
 function get_contract_hash(constants: ConstantContent, version: contract_version): string {
     try {
         const contract = handle_contract_generator(version)(
-            constants.owner, 
+            constants.creator, 
             constants.dev_hash ?? get_dev_contract_hash(), 
             constants.dev_fee, 
-            
+            constants.token_id
         );
         
         const ergoTree = compile(contract, {

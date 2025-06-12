@@ -47,7 +47,7 @@ function generate_contract(): string {
     // Name: Bountiful Bounty Platform Dev Fee Contract
     // Description: Contract guarding the fee box for the Bountiful Bounty Platform.
     // Version: 1.0.0
-    // Based on: Bene Fundraising Platform Dev Fee Contract
+    // Based on: Bountiful Platform Dev Fee Contract
 
     // ===== Box Contents ===== //
     // Tokens

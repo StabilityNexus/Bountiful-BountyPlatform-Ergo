@@ -154,7 +154,6 @@ export async function submit_bounty(
         const walletPk = await ergo.get_change_address();
 
         let addressContent: ConstantContent = {
-            "owner": walletPk,
             "creator": walletPk,
             "dev_addr": get_dev_contract_address(),
             "dev_hash": get_dev_contract_hash(),
