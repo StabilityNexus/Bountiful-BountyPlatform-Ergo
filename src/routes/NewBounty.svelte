@@ -79,7 +79,7 @@
   }
 
   $: {
-    if (daysLimit > 0) {
+    if (daysLimit > 0 && platformInitialized) {
       calculateBlockLimit(daysLimit);
     }
   }
@@ -352,6 +352,7 @@
     await initializePlatform();
 
     if (platformInitialized && platform) {
+      await calculateBlockLimit(daysLimit);
       await getCurrentHeight();
       await getErgBalance();
       await getUserTokens();

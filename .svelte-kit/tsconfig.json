@@ -27,7 +27,7 @@
 	"include": [
 		"ambient.d.ts",
 		"non-ambient.d.ts",
-		"./types/**/$app.d.ts",
+		"./types/**/$types.d.ts",
 		"../vite.config.js",
 		"../vite.config.ts",
 		"../src/**/*.js",
