@@ -1,0 +1,43 @@
+{
+  "name": "bountiful",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "deploy": "npm run build && npx gh-pages -d build"
+  },
+  "dependencies": {
+    "@fleet-sdk/compiler": "^0.8.1",
+    "@fleet-sdk/crypto": "^0.9.1",
+    "@tailwindcss/typography": "^0.5.16",
+    "bits-ui": "^0.22.0",
+    "buffer": "^6.0.3",
+    "ergo-lib-wasm-browser": "^0.28.0",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5",
+    "lucide-svelte": "^0.511.0",
+    "mode-watcher": "^0.5.1",
+    "paneforge": "^0.0.6",
+    "tailwind-merge": "^3.3.0",
+    "tailwind-variants": "^1.0.0"
+  },
+  "devDependencies": {
+    "@fleet-sdk/core": "^0.8.1",
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.21.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "svelte": "^5.28.6",
+    "svelte-check": "^4.1.7",
+    "tailwindcss": "^3.4.17",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0"
+  }
+}
