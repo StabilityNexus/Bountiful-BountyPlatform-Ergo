@@ -39,7 +39,8 @@ export async function submit_bounty(
     exchangeRate: number,   // Exchange rate ERG/Token
     bountyContent: string,    // Project content
     minimumSold: number,     // Minimum amount sold to allow withdrawal
-    title: string
+    title: string,
+    judgeAddress: string[]
 ): Promise<string|null> {
     if (!ergo) {
         throw new Error("Ergo object is not available");
@@ -55,6 +56,25 @@ export async function submit_bounty(
         "dev_fee": get_dev_fee(),
         "token_id": token_id
     };
+
+    // Create structured bounty content with judges
+    let structuredContent;
+    try {
+        // Try to parse existing bountyContent as JSON
+        structuredContent = JSON.parse(bountyContent);
+    } catch {
+        // If not JSON, treat as description
+        structuredContent = {
+            description: bountyContent
+        };
+    }
+
+    // Add title and judges to the content
+    structuredContent.title = title;
+    structuredContent.judges = judgeAddress;
+
+    // Convert back to JSON string for storage in R9
+    const finalBountyContent = JSON.stringify(structuredContent);
 
     // Get token emission amount.
     const token_data = await get_token_data(token_id);
@@ -96,7 +116,7 @@ export async function submit_bounty(
            R6: SPair(SLong(BigInt(0)), SLong(BigInt(0))).toHex(),     // Pair [Tokens sold counter, Tokens refunded counter]
            R7: SLong(BigInt(exchangeRate)).toHex(),                   // Exchange rate ERG/Token
            R8: SString(JSON.stringify(addressContent)),               // Owner address, dev address and dev fee.
-           R9: SString(bountyContent)                                // Project content
+           R9: SString(finalBountyContent)                                // Project content
         });
 
     // Building the unsigned transaction
