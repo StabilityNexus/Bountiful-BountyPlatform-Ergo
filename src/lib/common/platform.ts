@@ -11,6 +11,7 @@ export interface Platform {
     connect(): Promise<void>;
     get_current_height(): Promise<number>;
     get_balance(id?: string): Promise<Map<string, number>>;
+    get_address(): Promise<string>; // Add this method to the interface
     withdraw(bounty: Bounty, amount: number): Promise<string | null>;
     buy_refund(bounty: Bounty, token_amount: number): Promise<string | null>;
     rebalance(bounty: Bounty, token_amount: number): Promise<string | null>;
@@ -23,7 +24,8 @@ export interface Platform {
         exchangeRate: number,
         bountyLink: string,
         minimumSold: number,
-        title: string
+        title: string,
+        judgeAddresses: string[]
     ): Promise<string | null>;
     fetch(): Promise<Map<string, Bounty>>;
 }

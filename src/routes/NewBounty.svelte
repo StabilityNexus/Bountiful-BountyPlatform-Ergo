@@ -45,6 +45,10 @@
   let bountyImage: string = "";
   let bountyLink: string = "";
 
+  // New judge address field
+  let judgeAddresses: string[] = [];
+  let newJudgeAddress: string = "";
+
   let transactionId: string | null = null;
   let errorMessage: string | null = null;
   let isSubmitting: boolean = false;
@@ -56,6 +60,52 @@
     balance: number;
     decimals: number;
   }> = [];
+
+  // Function to add judge
+  function addJudge(): void {
+    if (newJudgeAddress && isValidErgoAddress(newJudgeAddress)) {
+      if (!judgeAddresses.includes(newJudgeAddress)) {
+        judgeAddresses = [...judgeAddresses, newJudgeAddress];
+        newJudgeAddress = "";
+      }
+    }
+  }
+
+  // Function to remove judge
+  function removeJudge(index: number): void {
+    judgeAddresses = judgeAddresses.filter((_, i) => i !== index);
+  }
+
+  // Address validation function
+  function isValidErgoAddress(address: string): boolean {
+    if (!address) return false;
+    // Basic Ergo address validation - starts with 9 and has proper length
+    const mainnetRegex = /^9[1-9A-HJ-NP-Za-km-z]{50,}$/;
+    const testnetRegex = /^3[1-9A-HJ-NP-Za-km-z]{50,}$/;
+    return mainnetRegex.test(address) || testnetRegex.test(address);
+  }
+
+  // Get current user's address for default judge
+  let currentUserAddress: string = "";
+
+  async function getCurrentUserAddress(): Promise<void> {
+    if (!platform || !platformInitialized) {
+      console.log(
+        "getCurrentUserAddress: No platform available or not initialized",
+      );
+      return;
+    }
+    try {
+      currentUserAddress = await platform.get_address();
+      // Set current user as default judge if no judges are specified
+      if (judgeAddresses.length === 0) {
+        judgeAddresses = [currentUserAddress];
+      }
+      console.log("Current user address:", currentUserAddress);
+    } catch (error) {
+      console.error("getCurrentUserAddress: ERROR:", error);
+    }
+  }
 
   // Reactive statements
   $: tokenId = tokenOption || null;
@@ -105,7 +155,7 @@
   async function calculateBlockLimit(days: number): Promise<void> {
     if (!platform || !platformInitialized) {
       console.log(
-        "calculateBlockLimit: No platform available or not initialized"
+        "calculateBlockLimit: No platform available or not initialized",
       );
       return;
     }
@@ -187,6 +237,21 @@
       return;
     }
 
+    if (judgeAddresses.length === 0) {
+      errorMessage = "Please add at least one judge address";
+      console.error("No judge addresses");
+      return;
+    }
+
+    // Validate all judge addresses
+    for (const address of judgeAddresses) {
+      if (!isValidErgoAddress(address)) {
+        errorMessage = `Invalid judge address: ${address}`;
+        console.error("Invalid judge address:", address);
+        return;
+      }
+    }
+
     isSubmitting = true;
     errorMessage = null;
     transactionId = null;
@@ -213,6 +278,7 @@
       bountyContent,
       minimumTokenSold: Math.round(minimumTokenSold),
       bountyTitle,
+      judgeAddresses,
     });
 
     try {
@@ -224,7 +290,8 @@
         Math.round(exchangeRateRaw),
         bountyContent,
         Math.round(minimumTokenSold),
-        bountyTitle
+        bountyTitle,
+        judgeAddresses,
       );
 
       transactionId = result;
@@ -306,7 +373,7 @@
             title: await getTokenName(tokenId),
             balance: balance,
             decimals: await getTokenDecimals(tokenId),
-          }))
+          })),
       );
       console.log("User tokens loaded:", userTokens);
     } catch (error) {
@@ -334,7 +401,8 @@
     exchangeRateRaw > 0 &&
     maxValuePrecise > 0 &&
     bountyTitle.trim() !== "" &&
-    daysLimitBlock > 0;
+    daysLimitBlock > 0 &&
+    judgeAddresses.length > 0;
 
   // Add a click handler that logs everything
   function handleButtonClick() {
@@ -342,7 +410,7 @@
       handleSubmit();
     } else {
       console.log(
-        "Button click ignored - form not valid or already submitting"
+        "Button click ignored - form not valid or already submitting",
       );
     }
   }
@@ -356,9 +424,10 @@
       await getCurrentHeight();
       await getErgBalance();
       await getUserTokens();
+      await getCurrentUserAddress(); // Get current user address and set as default judge
     } else {
       console.log(
-        "onMount: Platform not ready, skipping blockchain data retrieval"
+        "onMount: Platform not ready, skipping blockchain data retrieval",
       );
     }
   });
@@ -537,6 +606,76 @@
             <span>Date limit: {daysLimitText}</span>
           {/if}
         </div>
+      </div>
+
+      <!-- Judge Addresses Section -->
+      <div class="form-group">
+        <Label class="text-sm font-medium mb-2 block">
+          Judge Addresses
+          <span class="text-orange-400">*</span>
+        </Label>
+
+        <!-- Add new judge input -->
+        <div class="flex gap-2 mb-2">
+          <Input
+            type="text"
+            bind:value={newJudgeAddress}
+            placeholder="Enter judge's Ergo address"
+            class="flex-1 border-orange-500/20 focus:border-orange-500/40 focus:ring-orange-500/20 focus:ring-1"
+          />
+          <Button
+            type="button"
+            on:click={addJudge}
+            disabled={!newJudgeAddress || !isValidErgoAddress(newJudgeAddress)}
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+          >
+            Add
+          </Button>
+        </div>
+
+        <!-- Current user as judge button -->
+        {#if currentUserAddress}
+          <button
+            type="button"
+            on:click={() => {
+              newJudgeAddress = currentUserAddress;
+              addJudge();
+            }}
+            class="text-xs text-orange-400 hover:text-orange-300 underline transition-colors mb-2"
+          >
+            Add myself as judge
+          </button>
+        {/if}
+
+        <!-- List of added judges -->
+        {#if judgeAddresses.length > 0}
+          <div class="space-y-2">
+            <p class="text-sm text-muted-foreground">Added judges:</p>
+            {#each judgeAddresses as judge, index}
+              <div
+                class="flex items-center justify-between bg-background/50 p-2 rounded-md"
+              >
+                <span class="text-sm font-mono"
+                  >{judge.slice(0, 10)}...{judge.slice(-6)}</span
+                >
+                <button
+                  type="button"
+                  on:click={() => removeJudge(index)}
+                  class="text-red-400 hover:text-red-300 text-sm"
+                >
+                  Remove
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Validation message -->
+        {#if newJudgeAddress && !isValidErgoAddress(newJudgeAddress)}
+          <p class="text-red-400 text-xs mt-1">
+            Please enter a valid Ergo address
+          </p>
+        {/if}
       </div>
 
       <!-- Bounty Title -->

@@ -67,6 +67,15 @@ export class ErgoPlatform implements Platform {
             } */
     }
 
+    async get_address(): Promise<string> {
+    try {
+      return await ergo.get_change_address();
+    } catch (error) {
+      console.error("Failed to get current address:", error);
+      throw new Error("Unable to get current address");
+    }
+  }
+
     async get_current_height(): Promise<number> {
         try {
             // If connected to the Ergo wallet, get the current height directly
@@ -137,7 +146,8 @@ async submit(
         exchangeRate: number,
         bountyContent: string,
         minimumSold: number,
-        title: string
+        title: string,
+        judgeAddresses: string[]
     ): Promise<string | null> {
         return await submit_bounty(
             version,
@@ -147,7 +157,8 @@ async submit(
             exchangeRate,
             bountyContent,
             minimumSold,
-            title
+            title,
+            judgeAddresses
         );
     }
 
@@ -165,216 +176,3 @@ async submit(
     }
   }
 
-
-  // // Keep the original method for backward compatibility
-  // async withdraw_bounty(bounty: Bounty, winnerAddress: string, submissionId: string): Promise<string | null> {
-  //   try {
-  //     return await withdraw(bounty, winnerAddress, submissionId);
-  //   } catch (error) {
-  //     console.error('Failed to withdraw bounty reward:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async refund_bounty(bounty: Bounty): Promise<string | null> {
-  //   try {
-  //     return await refund_bounty(bounty);
-  //   } catch (error) {
-  //     console.error('Failed to refund bounty:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async fetch_bounties(): Promise<Bounty[]> {
-  //   try {
-  //     const bountyMap: Map<string, Bounty> = await fetchBountiesFromExplorer();
-  //     const bountiesArray: Bounty[] = Array.from(bountyMap.values());
-  //     return bountiesArray;
-  //   } catch (error) {
-  //     console.error('Failed to fetch bounties in ErgoPlatform:', error);
-  //     return [];
-  //   }
-  // }
-
-  // async getBountyById(id: string): Promise<Bounty | null> {
-  //   try {
-  //     const bountiesArray = await this.fetch_bounties();
-  //     return bountiesArray.find(bounty => bounty.bounty_id === id) || null;
-  //   } catch (error) {
-  //     console.error('Failed to get bounty by ID:', error);
-  //     return null;
-  //   }
-  // }
-
-  // // --- Extended Bounty Management ---
-  // async addMoreFunds(bounty: Bounty, additionalAmount: number): Promise<string | null> {
-  //   try {
-  //     return await add_funds(bounty, additionalAmount);
-  //   } catch (error) {
-  //     console.error('Failed to add funds:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async extendDeadline(bounty: Bounty, newDeadlineBlock: number): Promise<string | null> {
-  //   try {
-  //     return await extend_deadline(bounty, newDeadlineBlock);
-  //   } catch (error) {
-  //     console.error('Failed to extend deadline:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async updateMetadata(bounty: Bounty, newMetadata: string): Promise<string | null> {
-  //   try {
-  //     return await update_metadata(bounty, this._serializeMetadata(newMetadata));
-  //   } catch (error) {
-  //     console.error('Failed to update metadata:', error);
-  //     return null;
-  //   }
-  // }
-
-  // // --- Submission Management ---
-  // async submit_solution(bounty: Bounty, solution: string): Promise<string | null> {
-  //   try {
-  //     return await submit_solution(bounty, solution);
-  //   } catch (error) {
-  //     console.error('Failed to submit solution:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async submitSolution(bounty: Bounty, solution: string): Promise<string | null> {
-  //   return this.submit_solution(bounty, solution);
-  // }
-
-  // async judge_submission(bounty: Bounty, submissionId: string, accepted: boolean): Promise<string | null> {
-  //   try {
-  //     const judgmentData = JSON.stringify({
-  //       submissionId,
-  //       accepted,
-  //       timestamp: Date.now(),
-  //       judgedBy: this.creatorAddress
-  //     });
-
-  //     return await judge_submission(bounty, submissionId, accepted, judgmentData);
-  //   } catch (error) {
-  //     console.error('Failed to judge submission:', error);
-  //     return null;
-  //   }
-  // }
-
-  // async judgeSubmission(bounty: Bounty, submissionId: string, accepted: boolean): Promise<string | null> {
-  //   return this.judge_submission(bounty, submissionId, accepted);
-  // }
-
-  // async getAllBounties(): Promise<Bounty[]> {
-  //   try {
-  //     return await this.fetch_bounties();
-  //   } catch (error) {
-  //     console.error('Failed to get all bounties in ErgoPlatform:', error);
-  //     return [];
-  //   }
-  // }
-
-  // async getSubmissions(bountyId: string): Promise<any[]> {
-  //   try {
-  //     console.warn('getSubmissions not yet implemented for Ergo platform');
-  //     return [];
-  //   } catch (error) {
-  //     console.error('Failed to get submissions:', error);
-  //     return [];
-  //   }
-  // }
-
-  // // --- Utility Methods ---
-  // private _serializeMetadata(metadata: string): string {
-  //   try {
-  //     const metadataObj = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
-  //     const encoder = new TextEncoder();
-  //     const metadataBytes = encoder.encode(JSON.stringify(metadataObj));
-  //     const metadataHash = this._simpleHash(metadataBytes);
-  //     const emptyRoot = new Uint8Array(32).fill(0);
-  //     const combined = new Uint8Array(96);
-  //     combined.set(emptyRoot, 0);
-  //     combined.set(emptyRoot, 32);
-  //     combined.set(metadataHash, 64);
-  //     return Array.from(combined)
-  //       .map(b => b.toString(16).padStart(2, '0'))
-  //       .join('');
-  //   } catch (error) {
-  //     console.error('Failed to serialize metadata:', error);
-  //     throw new Error('Invalid metadata format');
-  //   }
-  // }
-
-  // private _simpleHash(data: Uint8Array): Uint8Array {
-  //   const hash = new Uint8Array(32);
-  //   for (let i = 0; i < data.length; i++) {
-  //     hash[i % 32] ^= data[i];
-  //   }
-  //   return hash;
-  // }
-
-  // // --- Validation Methods ---
-  // async isValidBounty(bounty: Bounty): Promise<boolean> {
-  //   try {
-  //     const currentHeight = await this.get_current_height();
-  //     const deadline = bounty.deadline ?? 0;
-  //     // const reward = bounty.reward_amount ?? 0;
-  //     return deadline > currentHeight && reward > 0;
-  //   } catch {
-  //     return false;
-  //   }
-  // }
-
-  // async canRefund(bounty: Bounty): Promise<boolean> {
-  //   try {
-  //     const currentHeight = await this.get_current_height();
-  //     const deadline = bounty.block_limit ?? 0;
-  //     const totalSubmissions = bounty.total_submissions ?? 0;
-  //     const minSubmissions = bounty.min_submissions ?? 0;
-  //     // const acceptedSubmissions = bounty.accepted_submissions ?? 0;
-
-  //     return (
-  //       currentHeight > deadline &&
-  //       (totalSubmissions < minSubmissions || acceptedSubmissions === 0)
-  //     );
-  //   } catch {
-  //     return false;
-  //   }
-  // }
-
-  // async canWithdraw(bounty: Bounty): Promise<boolean> {
-  //   try {
-  //     const totalSubmissions = bounty.total_submissions ?? 0;
-  //     const minSubmissions = bounty.min_submissions ?? 0;
-  //     const acceptedSubmissions = bounty.accepted_submissions ?? 0;
-
-  //     return (
-  //       acceptedSubmissions > 0 &&
-  //       totalSubmissions >= minSubmissions
-  //     );
-  //   } catch {
-  //     return false;
-  //   }
-  // }
-
-  // // --- Getters ---
-  // getCreatorAddress(): string {
-  //   return this.creatorAddress;
-  // }
-
-  // isConnected(): boolean {
-  //   return this.creatorAddress !== '';
-  // }
-
-  // async claimBounty(bounty: Bounty): Promise<string | null> {
-  //   console.warn("claimBounty is not yet implemented for ErgoPlatform.");
-  //   return null;
-  // }
-
-  // async cancelBounty(bounty: Bounty): Promise<string | null> {
-  //   console.warn("cancelBounty is not yet implemented for ErgoPlatform.");
-  //   return null;
-  // }

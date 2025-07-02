@@ -1,7 +1,7 @@
 <script lang="ts">
     import { download_dev, execute_dev } from "$lib/ergo/dev/dev_contract";
     import { mint_token } from "$lib/ergo/dev/mint_token";
-    import { submit_test } from "$lib/ergo/dev/submit";
+    import { submit_test } from "$lib/ergo/dev/submit_test";
     import Button from "$lib/components/ui/button/button.svelte";
     import type { Box, Amount } from "@fleet-sdk/core"; // Import the Box and Amount types if available
 
