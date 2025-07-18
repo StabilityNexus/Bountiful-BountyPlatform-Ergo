@@ -219,19 +219,23 @@
 
   val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
   
-  val isToBountyCreatorAddress = {
-    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
-    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
-
-    isSamePropBytes
-  }
-
-  val isFromBountyCreatorAddress = {
-    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, INPUTS(1))
-    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
-    
-    isSamePropBytes
-  }
+  val isPayoutToProposalReceiver = {
+    // Judge must provide the chosen proposal in INPUTS(1)
+    val proposalBox = INPUTS(1)
+    val proposalReceiver = proposalBox.R4[Coll[Byte]].get
+    val proposalBountyId = proposalBox.R5[Coll[Byte]].get
+  
+    // Validate the proposal is for the correct bounty
+    val isCorrectBountyId = proposalBountyId == SELF.tokens(0)._1
+  
+    // Validate payout goes to proposal's specified address
+    val isCorrectPayoutAddress = OUTPUTS(1).propositionBytes == proposalReceiver
+  
+    allOf(Coll(
+      isCorrectBountyId,
+      isCorrectPayoutAddress
+    ))
+}
 
   // Amount of PFT tokens added to the contract. In case of negative value, means that the token have been extracted.
   val deltaPFTokenAdded = {
@@ -435,7 +439,7 @@
     allOf(Coll(
       constants,
       minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
-      isToBountyCreatorAddress,                   // Only to the bounty creator address (for now - later this will be to solution provider)
+      isPayoutToProposalReceiver,                   // Only to the bounty creator address (for now - later this will be to solution provider)
       correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
       correctBountyAmount               // Ensures the correct solution provider amount.
     ))
@@ -467,7 +471,11 @@
 
     allOf(Coll(
       constants,
-      isToBountyCreatorAddress,
+      {
+        val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
+        val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
+        isSamePropBytes
+      },
       deltaPFTokenAdded < 0,  // A negative value means that PFT are extracted.
       onlyUnused  // Ensures that only extracts the token amount that has not been contributed for.
     ))
@@ -488,7 +496,7 @@
     if (INPUTS.size == 1) false  // To avoid access INPUTS(1) when there is no input, this could be resolved using actions.
     else allOf(Coll(
       constants,
-      isFromBountyCreatorAddress,   // Ensures that the tokens come from the bounty creator.
+      true,
       deltaPFTokenAdded > 0   // Ensures that the tokens are added.
     ))
   }

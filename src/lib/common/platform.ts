@@ -1,6 +1,7 @@
 // src/lib/common/platform.ts
 import { type Bounty } from "../common/bounty";
 import { type contract_version } from "../ergo/contract";
+import { type Proposal } from "../common/proposal";
 
 export interface Platform {
     id: string;  // ergo, ethereum ...
@@ -11,7 +12,7 @@ export interface Platform {
     connect(): Promise<void>;
     get_current_height(): Promise<number>;
     get_balance(id?: string): Promise<Map<string, number>>;
-    get_address(): Promise<string>; // Add this method to the interface
+    get_address(): Promise<string>; 
     withdraw(bounty: Bounty, amount: number): Promise<string | null>;
     buy_refund(bounty: Bounty, token_amount: number): Promise<string | null>;
     rebalance(bounty: Bounty, token_amount: number): Promise<string | null>;
@@ -28,4 +29,6 @@ export interface Platform {
         judgeAddresses: string[]
     ): Promise<string | null>;
     fetch(): Promise<Map<string, Bounty>>;
+    fetchProposals(): Promise<Proposal[]>; 
 }
+
