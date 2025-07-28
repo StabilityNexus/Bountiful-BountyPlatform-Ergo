@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { Bounty } from './bounty';
+import type { Proposal } from './proposal';
 
 export const address = writable<string|null>(null);
 export const network = writable<string|null>(null);
@@ -11,3 +12,4 @@ export const bounty_detail = writable<Bounty|null>(null);
 export const timer = writable<{countdownInterval: number, target: number}>({countdownInterval: 0, target: 0})
 export const bounties = writable<Map<string, Bounty>>(new Map());
 export const user_tokens = writable<Map<string, number>>(new Map());
+export const proposal_detail = writable<Proposal[]>([]);

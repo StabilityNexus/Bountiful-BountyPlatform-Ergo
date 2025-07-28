@@ -18,15 +18,21 @@
     import { Button } from "$lib/components/ui/button";
     import { block_to_time } from "$lib/common/countdown";
     import { ErgoPlatform } from "$lib/ergo/platform";
-    import { web_explorer_uri_tkn, web_explorer_uri_tx } from "$lib/ergo/envs";
+    import {
+        web_explorer_uri_addr,
+        web_explorer_uri_tkn,
+        web_explorer_uri_tx,
+    } from "$lib/ergo/envs";
     import { mode } from "mode-watcher";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label/index.js";
     import { Badge, badgeVariants } from "$lib/components/ui/badge/index.js";
     import { Card } from "$lib/components/ui/card";
     import { Textarea } from "$lib/components/ui/textarea";
+    import ProposalManager from "./ProposalManager.svelte";
     import { get } from "svelte/store";
     import { onDestroy } from "svelte";
+    import { onMount } from "svelte";
 
     export let bountyId: string = "";
 
@@ -48,7 +54,6 @@
 
     // States for amounts
     let show_submit = false;
-    let show_proposal_form = false;
     let label_submit = "";
     let info_type_to_show: "buy" | "dev" | "dev-collect" | "" = "";
     let function_submit: ((event?: any) => Promise<void>) | null = null;
@@ -56,22 +61,6 @@
     let submit_info = "";
     let hide_submit_info = false;
     let submit_amount_label = "";
-
-    let proposalSummary = "";
-    let proposalChecklist = "";
-    let proposalCodeLink = "";
-    let proposalDemoLink = "";
-
-    let proposals: Array<{
-        id: string;
-        developer: string;
-        summary: string;
-        checklist: string;
-        codeLink: string;
-        demoLink: string;
-        status: string;
-        submittedAt: Date;
-    }> = [];
 
     let funders: Array<{
         address: string;
@@ -123,15 +112,11 @@
             )
                 .toFixed(10)
                 .replace(/\.?0+$/, "") + "ERGs in total.";
-        // Update judge check to match BountyCard pattern
-        isCurrentUserJudge =
-            !!$address && !!bounty.content?.judges?.includes($address);
     }
 
     // Initialize data loading
     async function initializeBounty() {
         if (bountyId && !bounty) {
-            // Fetch bounty by ID - replace with actual API call
             // bounty = await platform.getBountyById(bountyId);
         }
 
@@ -139,25 +124,12 @@
             await Promise.all([
                 load(),
                 checkIfIsOwner(),
+                checkIfIsJudge(), // Add this line
                 setTargetDate(),
                 getWalletBalances(),
                 get_user_bounty_tokens(),
-                loadProposals(),
                 loadFunders(),
             ]);
-        }
-    }
-
-    // Load proposals from API
-    async function loadProposals() {
-        if (!bounty) return;
-
-        try {
-            // Replace with actual API call
-            // proposals = await platform.getProposals(bounty.bounty_id);
-            console.log("Loading proposals for bounty:", bounty.bounty_id);
-        } catch (error) {
-            console.error("Failed to load proposals:", error);
         }
     }
 
@@ -214,96 +186,6 @@
             bounty.current_pft_amount /
             Math.pow(10, bounty.token_details.decimals);
         maxWithdrawErgAmount = bounty.current_value / Math.pow(10, 9);
-    }
-
-    // Proposal submission functions
-    function openProposalForm() {
-        show_proposal_form = true;
-        proposalSummary = "";
-        proposalChecklist = "";
-        proposalCodeLink = "";
-        proposalDemoLink = "";
-    }
-
-    function closeProposalForm() {
-        show_proposal_form = false;
-    }
-
-    async function submitProposal() {
-        if (!bounty || !proposalSummary.trim()) return;
-
-        isSubmitting = true;
-        try {
-            // Replace with actual proposal submission logic
-            const proposalData = {
-                bountyId: bounty.bounty_id,
-                summary: proposalSummary,
-                checklist: proposalChecklist,
-                codeLink: proposalCodeLink,
-                demoLink: proposalDemoLink,
-            };
-
-            // const result = await platform.submitProposal(proposalData);
-            console.log("Submitting proposal:", proposalData);
-
-            // Mock success
-            transactionId = "mock_proposal_tx_" + Date.now();
-            closeProposalForm();
-
-            // Reload proposals after submission
-            await loadProposals();
-        } catch (error) {
-            if (error && typeof error === "object" && "message" in error) {
-                errorMessage =
-                    (error as { message: string }).message ||
-                    "Failed to submit proposal";
-            } else {
-                errorMessage = "Failed to submit proposal";
-            }
-        } finally {
-            isSubmitting = false;
-        }
-    }
-
-    // Judge functions
-    async function approveProposal(proposalId: string) {
-        if (!bounty || !isCurrentUserJudge) return;
-
-        try {
-            // Replace with actual approval logic
-            console.log("Approving proposal:", proposalId);
-            proposals = proposals.map((p) =>
-                p.id === proposalId ? { ...p, status: "approved" } : p,
-            );
-        } catch (error) {
-            if (error && typeof error === "object" && "message" in error) {
-                errorMessage =
-                    (error as { message: string }).message ||
-                    "Failed to approve proposal";
-            } else {
-                errorMessage = "Failed to approve proposal";
-            }
-        }
-    }
-
-    async function rejectProposal(proposalId: string) {
-        if (!bounty || !isCurrentUserJudge) return;
-
-        try {
-            // Replace with actual rejection logic
-            console.log("Rejecting proposal:", proposalId);
-            proposals = proposals.map((p) =>
-                p.id === proposalId ? { ...p, status: "rejected" } : p,
-            );
-        } catch (error) {
-            if (error && typeof error === "object" && "message" in error) {
-                errorMessage =
-                    (error as { message: string }).message ||
-                    "Failed to reject proposal";
-            } else {
-                errorMessage = "Failed to reject proposal";
-            }
-        }
     }
 
     // Add balance check after connection state changes
@@ -658,6 +540,23 @@
             clearInterval(countdownInterval);
         }
     });
+
+    async function checkIfIsJudge() {
+        if (!bounty || !$connected) return;
+
+        const currentAddress = (await $address) || "";
+        console.log("Checking if current address is a judge:", currentAddress);
+        isCurrentUserJudge =
+            bounty.content?.judges?.includes(currentAddress) ?? false;
+    }
+
+    onMount(async () => {
+        await initializeBounty();
+    });
+
+    $: if ($connected && bounty) {
+        checkIfIsJudge();
+    }
 </script>
 
 {#if bounty}
@@ -712,27 +611,48 @@
                                 <span class="icon">🧑‍⚖️</span>
                                 <div class="metadata-content">
                                     <span class="label">
-                                        Judge{(bounty.content?.judges?.length ?? 0) > 1
+                                        Judge{(bounty.content?.judges?.length ??
+                                            0) > 1
                                             ? "s"
                                             : ""}:
                                     </span>
 
                                     {#if isCurrentUserJudge}
-                                        <span class="value judge-highlight">
-                                            {#if (bounty.content?.judges?.length ?? 0) > 1}
-                                                You + {(bounty.content.judges?.length ?? 0) - 1} other{(bounty.content.judges?.length ?? 0) > 2 ? "s" : ""}
-                                            {:else}
-                                                You
-                                            {/if}
-                                        </span>
-                                    {:else if (bounty.content?.judges?.length ?? 0) > 0}
+                                        <div class="metadata-item judge-badge">
+                                            <div class="metadata-content">
+                                                <div class="value">
+                                                    You are a <span
+                                                        class="judge-highlight"
+                                                        >Judge</span
+                                                    >
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {/if}
+
+                                    {#if (bounty.content?.judges?.length ?? 0) > 0}
                                         <span class="value">
                                             {#each bounty.content.judges ?? [] as judge, index (judge)}
-                                                {truncateAddress(judge)}{index < (bounty.content.judges ?? []).length - 1 ? ", " : ""}
+                                                <a
+                                                    href="{web_explorer_uri_addr}{judge}"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="judge-link"
+                                                >
+                                                    {truncateAddress(judge)}
+                                                </a>
+                                                {index <
+                                                (bounty.content.judges ?? [])
+                                                    .length -
+                                                    1
+                                                    ? ", "
+                                                    : ""}
                                             {/each}
                                         </span>
                                     {:else}
-                                        <span class="value">Unknown</span>
+                                        <span class="value"
+                                            >No judges assigned</span
+                                        >
                                     {/if}
                                 </div>
                             </div>
@@ -741,7 +661,11 @@
                                 <span class="icon">⛓️</span>
                                 <div class="metadata-content">
                                     <span class="label">Bounty ID</span>
-                                    <span class="value">{truncateAddress(bounty.bounty_id)}</span>
+                                    <span class="value"
+                                        >{truncateAddress(
+                                            bounty.bounty_id,
+                                        )}</span
+                                    >
                                 </div>
                             </div>
                         </div>
@@ -765,7 +689,12 @@
                         <p>{bounty.content.description}</p>
                         {#if bounty.content.link}
                             <p>
-                                More info <a href={bounty.content.link} target="_blank" rel="noopener noreferrer" class="external-link">here</a>.
+                                More info <a
+                                    href={bounty.content.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="external-link">here</a
+                                >.
                             </p>
                         {/if}
                     </div>
@@ -779,7 +708,12 @@
                     <div class="technical-grid">
                         <div class="technical-item">
                             <span class="label">Token</span>
-                            <a href={web_explorer_uri_tkn + bounty.token_id} target="_blank" rel="noopener noreferrer" class="value link">
+                            <a
+                                href={web_explorer_uri_tkn + bounty.token_id}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="value link"
+                            >
                                 {bounty.token_details.name}
                             </a>
                         </div>
@@ -787,7 +721,9 @@
                         <div class="technical-item">
                             <span class="label">Max Funding</span>
                             <span class="value">
-                                {max / Math.pow(10, bounty.token_details.decimals)} {bounty.token_details.name}
+                                {max /
+                                    Math.pow(10, bounty.token_details.decimals)}
+                                {bounty.token_details.name}
                             </span>
                         </div>
 
@@ -799,7 +735,13 @@
                         <div class="technical-item">
                             <span class="label">Exchange Rate</span>
                             <span class="value">
-                                {(bounty.exchange_rate * Math.pow(10, bounty.token_details.decimals - 9)).toFixed(4)} ERG/{bounty.token_details.name}
+                                {(
+                                    bounty.exchange_rate *
+                                    Math.pow(
+                                        10,
+                                        bounty.token_details.decimals - 9,
+                                    )
+                                ).toFixed(4)} ERG/{bounty.token_details.name}
                             </span>
                         </div>
                     </div>
@@ -873,127 +815,12 @@
                         </div>
                     {/if}
                 </div>
-
-                <!-- Proposals Section -->
-                <div class="proposals-section">
-                    <div class="proposals-header">
-                        <h2>📋 Proposals ({proposals.length})</h2>
-                        {#if $connected && !deadline_passed && !is_max_submissions}
-                            <Button
-                                class="submit-proposal-btn"
-                                style="background-color: #FFA500; color: black;"
-                                on:click={openProposalForm}
-                            >
-                                ➕ Submit Proposal
-                            </Button>
-                        {/if}
-                    </div>
-
-                    {#if proposals.length > 0}
-                        <div class="proposals-list">
-                            {#each proposals as proposal}
-                                <Card class="proposal-card">
-                                    <div class="proposal-header">
-                                        <div class="proposal-meta">
-                                            <h3 class="proposal-title">
-                                                {proposal.summary}
-                                            </h3>
-                                            <div class="proposal-dev">
-                                                <span class="icon">👨‍💻</span>
-                                                <span>{proposal.developer}</span>
-                                            </div>
-                                        </div>
-                                        <div class="proposal-status">
-                                            <Badge
-                                                variant={proposal.status ===
-                                                "approved"
-                                                    ? "default"
-                                                    : proposal.status ===
-                                                        "rejected"
-                                                      ? "destructive"
-                                                      : "secondary"}
-                                            >
-                                                {proposal.status === "approved"
-                                                    ? "✅ Approved"
-                                                    : proposal.status ===
-                                                        "rejected"
-                                                      ? "❌ Rejected"
-                                                      : "⏳ Pending"}
-                                            </Badge>
-                                        </div>
-                                    </div>
-
-                                    <div class="proposal-content">
-                                        {#if proposal.checklist}
-                                            <div class="proposal-checklist">
-                                                <h4>Checklist:</h4>
-                                                <pre>{proposal.checklist}</pre>
-                                            </div>
-                                        {/if}
-
-                                        <div class="proposal-links">
-                                            {#if proposal.codeLink}
-                                                <a
-                                                    href={proposal.codeLink}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    class="proposal-link"
-                                                >
-                                                    🔗 Code
-                                                </a>
-                                            {/if}
-                                            {#if proposal.demoLink}
-                                                <a
-                                                    href={proposal.demoLink}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    class="proposal-link"
-                                                >
-                                                    🚀 Demo
-                                                </a>
-                                            {/if}
-                                        </div>
-
-                                        <div class="proposal-submitted">
-                                            Submitted: {formatDate(
-                                                proposal.submittedAt,
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {#if isCurrentUserJudge && proposal.status === "pending"}
-                                        <div class="judge-actions">
-                                            <Button
-                                                variant="default"
-                                                size="sm"
-                                                on:click={() =>
-                                                    approveProposal(
-                                                        proposal.id,
-                                                    )}
-                                            >
-                                                ✅ Approve
-                                            </Button>
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                on:click={() =>
-                                                    rejectProposal(proposal.id)}
-                                            >
-                                                ❌ Reject
-                                            </Button>
-                                        </div>
-                                    {/if}
-                                </Card>
-                            {/each}
-                        </div>
-                    {:else}
-                        <div class="no-proposals">
-                            <p>No proposals submitted yet.</p>
-                            {#if $connected && !deadline_passed}
-                                <p>Be the first to submit a proposal!</p>
-                            {/if}
-                        </div>
-                    {/if}
+                <div class="proposal-section">
+                    <ProposalManager
+                        {bounty}
+                        {deadline_passed}
+                        {is_max_submissions}
+                    />
                 </div>
             </div>
 
@@ -1168,876 +995,746 @@
                 {/if}
             </div>
         </div>
-
-        <!-- Transaction Form Modal -->
-        {#if show_submit}
-            <div class="modal-overlay">
-                <div
-                    class="actions-form"
-                    style={$mode === "light"
-                        ? "background: white;"
-                        : "background: #2a2a2a;"}
-                >
-                    <div class="close-button" on:click={close_submit_form}>
-                        &times;
-                    </div>
-                    <div class="centered-form">
-                        {#if transactionId}
-                            <div class="result">
-                                <p>
-                                    <strong>Transaction ID:</strong>
-                                    <a
-                                        href={web_explorer_uri_tx +
-                                            transactionId}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="transaction-link"
-                                    >
-                                        {transactionId.slice(0, 16)}
-                                    </a>
-                                </p>
-                            </div>
-                        {:else if errorMessage}
-                            <div class="error">
-                                <p>{errorMessage}</p>
-                            </div>
-                        {:else}
-                            <div class="form-container">
-                                <div class="form-info">
-                                    {#if info_type_to_show === "buy"}
-                                        <p>
-                                            <strong>Exchange Rate:</strong>
-                                            {(
-                                                bounty.exchange_rate *
-                                                Math.pow(
-                                                    10,
-                                                    bounty.token_details
-                                                        .decimals - 9,
-                                                )
-                                            )
-                                                .toFixed(10)
-                                                .replace(/\.?0+$/, "")}
-                                            {platform.main_token}/{bounty
-                                                .token_details.name}
-                                        </p>
-                                        <p>
-                                            <strong>Available Balance:</strong>
-                                            {userErgBalance.toFixed(4)}
-                                            {platform.main_token}
-                                        </p>
-                                        <p>
-                                            <strong
-                                                >Maximum Contribution:</strong
-                                            >
-                                            {maxContributeAmount.toFixed(4)}
-                                            {bounty.token_details.name}
-                                        </p>
-                                    {/if}
-                                    {#if info_type_to_show === "dev-collect"}
-                                        <p>
-                                            <strong>Current ERG balance:</strong
-                                            >
-                                            {bounty.current_value /
-                                                Math.pow(10, 9)}
-                                            {platform.main_token}
-                                        </p>
-                                        <p>
-                                            <strong>Maximum Withdrawal:</strong>
-                                            {maxWithdrawErgAmount.toFixed(4)}
-                                            {platform.main_token}
-                                        </p>
-                                    {/if}
-                                    {#if info_type_to_show === "dev"}
-                                        <p>
-                                            <strong>Current PFT balance:</strong
-                                            >
-                                            {bounty.current_pft_amount /
-                                                Math.pow(
-                                                    10,
-                                                    bounty.token_details
-                                                        .decimals,
-                                                )}
-                                            {bounty.token_details.name}
-                                        </p>
-                                        <p>
-                                            <strong>Maximum Withdrawal:</strong>
-                                            {maxWithdrawTokenAmount.toFixed(4)}
-                                            {bounty.token_details.name}
-                                        </p>
-                                    {/if}
-                                    {#if function_submit === refund}
-                                        <p>
-                                            <strong>Your Token Balance:</strong>
-                                            {userBountyTokenBalance.toFixed(4)}
-                                            {bounty.token_details.name}
-                                        </p>
-                                        <p>
-                                            <strong>Maximum Refund:</strong>
-                                            {maxRefundAmount.toFixed(4)}
-                                            {bounty.token_details.name}
-                                        </p>
-                                    {/if}
-                                    {#if function_submit === temp_exchange}
-                                        <p>
-                                            <strong
-                                                >Your Temporal Token Balance:</strong
-                                            >
-                                            {userTemporalTokenBalance.toFixed(
-                                                4,
-                                            )} APT
-                                        </p>
-                                        <p>
-                                            <strong>Maximum Collection:</strong>
-                                            {maxCollectAmount.toFixed(4)}
-                                            {bounty.token_details.name}
-                                        </p>
-                                    {/if}
-                                </div>
-
-                                <div class="form-content">
-                                    <Label for="amount-input" class="form-label"
-                                        >{label_submit}</Label
-                                    >
-                                    <div class="input-container">
-                                        <Input
-                                            id="amount-input"
-                                            type="number"
-                                            bind:value={value_submit}
-                                            min="0"
-                                            max={function_submit === buy
-                                                ? maxContributeAmount
-                                                : function_submit === refund
-                                                  ? maxRefundAmount
-                                                  : function_submit ===
-                                                      temp_exchange
-                                                    ? maxCollectAmount
-                                                    : function_submit ===
-                                                        withdraw_tokens
-                                                      ? maxWithdrawTokenAmount
-                                                      : function_submit ===
-                                                          withdraw_erg
-                                                        ? maxWithdrawErgAmount
-                                                        : null}
-                                            step="0.001"
-                                            class="form-input"
-                                        />
-                                        <span class="input-suffix"
-                                            >{submit_amount_label}</span
-                                        >
-                                    </div>
-
-                                    {#if !hide_submit_info}
-                                        <div class="info-badge">
-                                            <Badge type="primary" rounded
-                                                >{submit_info}</Badge
-                                            >
-                                        </div>
-                                    {/if}
-
-                                    <Button
-                                        on:click={function_submit ?? (() => {})}
-                                        disabled={isSubmitting ||
-                                            value_submit <= 0 ||
-                                            (function_submit === buy &&
-                                                value_submit >
-                                                    maxContributeAmount) ||
-                                            (function_submit === refund &&
-                                                value_submit >
-                                                    maxRefundAmount) ||
-                                            (function_submit ===
-                                                temp_exchange &&
-                                                value_submit >
-                                                    maxCollectAmount) ||
-                                            (function_submit ===
-                                                withdraw_tokens &&
-                                                value_submit >
-                                                    maxWithdrawTokenAmount) ||
-                                            (function_submit === withdraw_erg &&
-                                                value_submit >
-                                                    maxWithdrawErgAmount)}
-                                        class="submit-btn"
-                                        style="background-color: #FF8C00; color: black;"
-                                    >
-                                        {isSubmitting
-                                            ? "Processing..."
-                                            : "Submit"}
-                                    </Button>
-                                </div>
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-        {/if}
-
-        <!-- Proposal Form Modal -->
-        {#if show_proposal_form}
-            <div class="modal-overlay">
-                <div
-                    class="proposal-form"
-                    style={$mode === "light"
-                        ? "background: white;"
-                        : "background: #2a2a2a;"}
-                >
-                    <div class="close-button" on:click={closeProposalForm}>
-                        &times;
-                    </div>
-                    <div class="centered-form">
-                        <h2>Submit Proposal</h2>
-
-                        {#if transactionId}
-                            <div class="result">
-                                <p>Proposal submitted successfully!</p>
-                                <p>
-                                    <strong>Transaction ID:</strong>
-                                    <a
-                                        href={web_explorer_uri_tx +
-                                            transactionId}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="transaction-link"
-                                    >
-                                        {transactionId.slice(0, 16)}
-                                    </a>
-                                </p>
-                            </div>
-                        {:else if errorMessage}
-                            <div class="error">
-                                <p>{errorMessage}</p>
-                            </div>
-                        {:else}
-                            <div class="form-container">
-                                <div class="form-content">
-                                    <div class="form-field">
-                                        <Label
-                                            for="proposal-summary"
-                                            class="form-label"
-                                        >
-                                            Summary *
-                                        </Label>
-                                        <Input
-                                            id="proposal-summary"
-                                            type="text"
-                                            bind:value={proposalSummary}
-                                            placeholder="Brief summary of your proposal"
-                                            class="form-input"
-                                            required
-                                        />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <Label
-                                            for="proposal-checklist"
-                                            class="form-label"
-                                        >
-                                            Checklist
-                                        </Label>
-                                        <Textarea
-                                            id="proposal-checklist"
-                                            bind:value={proposalChecklist}
-                                            placeholder="List the tasks/requirements you'll complete"
-                                            class="form-textarea"
-                                            rows={4}
-                                        />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <Label
-                                            for="proposal-code"
-                                            class="form-label"
-                                        >
-                                            Code Repository Link
-                                        </Label>
-                                        <Input
-                                            id="proposal-code"
-                                            type="url"
-                                            bind:value={proposalCodeLink}
-                                            placeholder="https://github.com/username/repo"
-                                            class="form-input"
-                                        />
-                                    </div>
-
-                                    <div class="form-field">
-                                        <Label
-                                            for="proposal-demo"
-                                            class="form-label"
-                                        >
-                                            Demo/Preview Link
-                                        </Label>
-                                        <Input
-                                            id="proposal-demo"
-                                            type="url"
-                                            bind:value={proposalDemoLink}
-                                            placeholder="https://demo.example.com"
-                                            class="form-input"
-                                        />
-                                    </div>
-
-                                    <div class="form-actions">
-                                        <Button
-                                            variant="outline"
-                                            on:click={closeProposalForm}
-                                            class="cancel-btn"
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            on:click={submitProposal}
-                                            disabled={isSubmitting ||
-                                                !proposalSummary.trim()}
-                                            class="submit-btn"
-                                            style="background-color: #FFA500; color: black;"
-                                        >
-                                            {isSubmitting
-                                                ? "Submitting..."
-                                                : "Submit Proposal"}
-                                        </Button>
-                                    </div>
-                                </div>
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-        {/if}
     </div>
+    <!-- Transaction Form Modal -->
+    {#if show_submit}
+        <div class="modal-overlay">
+            <div
+                class="actions-form"
+                style={$mode === "light"
+                    ? "background: white;"
+                    : "background: #2a2a2a;"}
+            >
+                <div class="close-button" on:click={close_submit_form}>
+                    &times;
+                </div>
+                <div class="centered-form">
+                    {#if transactionId}
+                        <div class="result">
+                            <p>
+                                <strong>Transaction ID:</strong>
+                                <a
+                                    href={web_explorer_uri_tx + transactionId}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="transaction-link"
+                                >
+                                    {transactionId.slice(0, 16)}
+                                </a>
+                            </p>
+                        </div>
+                    {:else if errorMessage}
+                        <div class="error">
+                            <p>{errorMessage}</p>
+                        </div>
+                    {:else}
+                        <div class="form-container">
+                            <div class="form-info">
+                                {#if info_type_to_show === "buy"}
+                                    <p>
+                                        <strong>Exchange Rate:</strong>
+                                        {(
+                                            bounty.exchange_rate *
+                                            Math.pow(
+                                                10,
+                                                bounty.token_details.decimals -
+                                                    9,
+                                            )
+                                        )
+                                            .toFixed(10)
+                                            .replace(/\.?0+$/, "")}
+                                        {platform.main_token}/{bounty
+                                            .token_details.name}
+                                    </p>
+                                    <p>
+                                        <strong>Available Balance:</strong>
+                                        {userErgBalance.toFixed(4)}
+                                        {platform.main_token}
+                                    </p>
+                                    <p>
+                                        <strong>Maximum Contribution:</strong>
+                                        {maxContributeAmount.toFixed(4)}
+                                        {bounty.token_details.name}
+                                    </p>
+                                {/if}
+                                {#if info_type_to_show === "dev-collect"}
+                                    <p>
+                                        <strong>Current ERG balance:</strong>
+                                        {bounty.current_value / Math.pow(10, 9)}
+                                        {platform.main_token}
+                                    </p>
+                                    <p>
+                                        <strong>Maximum Withdrawal:</strong>
+                                        {maxWithdrawErgAmount.toFixed(4)}
+                                        {platform.main_token}
+                                    </p>
+                                {/if}
+                                {#if info_type_to_show === "dev"}
+                                    <p>
+                                        <strong>Current PFT balance:</strong>
+                                        {bounty.current_pft_amount /
+                                            Math.pow(
+                                                10,
+                                                bounty.token_details.decimals,
+                                            )}
+                                        {bounty.token_details.name}
+                                    </p>
+                                    <p>
+                                        <strong>Maximum Withdrawal:</strong>
+                                        {maxWithdrawTokenAmount.toFixed(4)}
+                                        {bounty.token_details.name}
+                                    </p>
+                                {/if}
+                                {#if function_submit === refund}
+                                    <p>
+                                        <strong>Your Token Balance:</strong>
+                                        {userBountyTokenBalance.toFixed(4)}
+                                        {bounty.token_details.name}
+                                    </p>
+                                    <p>
+                                        <strong>Maximum Refund:</strong>
+                                        {maxRefundAmount.toFixed(4)}
+                                        {bounty.token_details.name}
+                                    </p>
+                                {/if}
+                                {#if function_submit === temp_exchange}
+                                    <p>
+                                        <strong
+                                            >Your Temporal Token Balance:</strong
+                                        >
+                                        {userTemporalTokenBalance.toFixed(4)} APT
+                                    </p>
+                                    <p>
+                                        <strong>Maximum Collection:</strong>
+                                        {maxCollectAmount.toFixed(4)}
+                                        {bounty.token_details.name}
+                                    </p>
+                                {/if}
+                            </div>
+
+                            <div class="form-content">
+                                <Label for="amount-input" class="form-label"
+                                    >{label_submit}</Label
+                                >
+                                <div class="input-container">
+                                    <Input
+                                        id="amount-input"
+                                        type="number"
+                                        bind:value={value_submit}
+                                        min="0"
+                                        max={function_submit === buy
+                                            ? maxContributeAmount
+                                            : function_submit === refund
+                                              ? maxRefundAmount
+                                              : function_submit ===
+                                                  temp_exchange
+                                                ? maxCollectAmount
+                                                : function_submit ===
+                                                    withdraw_tokens
+                                                  ? maxWithdrawTokenAmount
+                                                  : function_submit ===
+                                                      withdraw_erg
+                                                    ? maxWithdrawErgAmount
+                                                    : null}
+                                        step="0.001"
+                                        class="form-input"
+                                    />
+                                    <span class="input-suffix"
+                                        >{submit_amount_label}</span
+                                    >
+                                </div>
+
+                                {#if !hide_submit_info}
+                                    <div class="info-badge">
+                                        <Badge type="primary" rounded
+                                            >{submit_info}</Badge
+                                        >
+                                    </div>
+                                {/if}
+
+                                <Button
+                                    on:click={function_submit ?? (() => {})}
+                                    disabled={isSubmitting ||
+                                        value_submit <= 0 ||
+                                        (function_submit === buy &&
+                                            value_submit >
+                                                maxContributeAmount) ||
+                                        (function_submit === refund &&
+                                            value_submit > maxRefundAmount) ||
+                                        (function_submit === temp_exchange &&
+                                            value_submit > maxCollectAmount) ||
+                                        (function_submit === withdraw_tokens &&
+                                            value_submit >
+                                                maxWithdrawTokenAmount) ||
+                                        (function_submit === withdraw_erg &&
+                                            value_submit >
+                                                maxWithdrawErgAmount)}
+                                    class="submit-btn"
+                                    style="background-color: #FF8C00; color: black;"
+                                >
+                                    {isSubmitting ? "Processing..." : "Submit"}
+                                </Button>
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    {/if}
 {/if}
 
 <style>
-
     /* Section Headers */
-.section-header {
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.section-header h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0;
-}
-
-.metadata-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background-color: rgba(255, 255, 255, 0.03);
-    border-radius: 6px;
-}
-
-.metadata-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    flex: 1;
-}
-
-.metadata-item .icon {
-    font-size: 1.25rem;
-    flex-shrink: 0;
-}
-
-.metadata-item .label {
-    font-size: 0.875rem;
-    font-weight: 600;
-    opacity: 0.8;
-}
-
-.metadata-item .value {
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-
-.judge-highlight {
-    color: #FFA500 !important;
-    font-weight: 600;
-}
-
-/* Header Metadata Grid */
-.header-metadata {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    margin-bottom: 1.5rem;
-}
-
-.metadata-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-}
-
-.description-content {
-    line-height: 1.6;
-}
-
-.external-link {
-    color: #FFA500;
-    text-decoration: underline;
-    transition: color 0.2s ease;
-}
-
-.external-link:hover {
-    color: #FF8C00;
-}
-
-/* Technical Metadata */
-.technical-metadata {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.technical-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-}
-
-@media (max-width: 767px) {
-    .technical-grid {
-        grid-template-columns: 1fr;
+    .section-header {
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
-}
 
-.technical-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.75rem;
-    background-color: rgba(255, 255, 255, 0.03);
-    border-radius: 6px;
-}
+    .section-header h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0;
+    }
 
-.technical-item .label {
-    font-size: 0.875rem;
-    font-weight: 600;
-    opacity: 0.8;
-}
-
-.technical-item .value {
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-
-.technical-item .link {
-    color: #FFA500;
-    text-decoration: underline;
-    transition: color 0.2s ease;
-}
-
-.technical-item .link:hover {
-    color: #FF8C00;
-}
-
-/* Funding Section */
-.funding-section {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* Proposals Section */
-.proposals-section {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.proposals-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.proposals-header h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0;
-}
-
-/* Update existing bounty-info styles */
-.bounty-info {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    overflow: visible;
-}
-
-.bounty-header {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.header-main {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-@media (min-width: 768px) {
-    .header-main {
-        flex-direction: row;
-        justify-content: space-between;
+    .metadata-item {
+        display: flex;
         align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        background-color: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
     }
-}
 
-.status-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
+    .metadata-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        flex: 1;
+    }
 
-/* Submit Proposal Form Styles */
+    .metadata-item .icon {
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
 
-.proposal-form {
-  position: relative;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  animation: slideIn 0.3s ease-out;
-}
+    .metadata-item .label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        opacity: 0.8;
+    }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
+    .metadata-item .value {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
 
-.proposal-form .close-button {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: rgba(255, 69, 0, 0.1);
-  color: #ff4500;
-  font-size: 24px;
-  font-weight: bold;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  z-index: 10;
-}
+    .judge-highlight {
+        color: #ffa500 !important;
+        font-weight: 600;
+    }
 
-.proposal-form .close-button:hover {
-  background: rgba(255, 69, 0, 0.2);
-  transform: scale(1.1);
-}
+    .judge-link {
+        color: #ff8c00;
+        text-decoration: none;
+        font-weight: 500;
+    }
 
-.proposal-form .centered-form {
-  padding: 32px;
-  padding-top: 60px; /* Account for close button */
-}
+    .judge-link:hover {
+        text-decoration: underline;
+    }
 
-.proposal-form h2 {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0 0 24px 0;
-  color: #FFA500;
-  text-align: center;
-  position: relative;
-}
+    .judge-highlight {
+        margin-top: 0.5rem;
+    }
 
-.proposal-form h2::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 3px;
-  background: linear-gradient(90deg, #FFA500, #FF8C00);
-  border-radius: 2px;
-}
+    /* Header Metadata Grid */
+    .header-metadata {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1.5rem;
+    }
 
-.proposal-form .form-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
+    .metadata-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
 
-.proposal-form .form-content {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
+    .description-content {
+        line-height: 1.6;
+    }
 
-.proposal-form .form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+    .external-link {
+        color: #ffa500;
+        text-decoration: underline;
+        transition: color 0.2s ease;
+    }
 
-.proposal-form .form-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary, #333);
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
+    .external-link:hover {
+        color: #ff8c00;
+    }
 
-/* Dark mode label color */
-[data-mode="dark"] .proposal-form .form-label {
-  color: #ddd;
-}
+    /* Technical Metadata */
+    .technical-metadata {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
-.proposal-form .form-label::before {
-  content: '';
-  width: 4px;
-  height: 4px;
-  background: #FFA500;
-  border-radius: 50%;
-  display: inline-block;
-}
+    .technical-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+    }
 
-.proposal-form .form-input,
-.proposal-form .form-textarea {
-  padding: 12px 16px;
-  border: 2px solid rgba(255, 165, 0, 0.2);
-  border-radius: 8px;
-  font-size: 14px;
-  font-family: inherit;
-  transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary, #333);
-  resize: vertical;
-  min-height: 44px;
-}
+    @media (max-width: 767px) {
+        .technical-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 
-/* Dark mode input styles */
-[data-mode="dark"] .proposal-form .form-input,
-[data-mode="dark"] .proposal-form .form-textarea {
-  background: rgba(255, 255, 255, 0.05);
-  color: #ddd;
-  border-color: rgba(255, 165, 0, 0.3);
-}
+    .technical-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0.75rem;
+        background-color: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
+    }
 
-.proposal-form .form-input:focus,
-.proposal-form .form-textarea:focus {
-  outline: none;
-  border-color: #FFA500;
-  box-shadow: 0 0 0 3px rgba(255, 165, 0, 0.1);
-  background: rgba(255, 165, 0, 0.05);
-}
+    .technical-item .label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        opacity: 0.8;
+    }
 
-.proposal-form .form-input::placeholder,
-.proposal-form .form-textarea::placeholder {
-  color: rgba(133, 133, 133, 0.7);
-  font-style: italic;
-}
+    .technical-item .value {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
 
-.proposal-form .form-textarea {
-  min-height: 100px;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-  line-height: 1.5;
-}
+    .technical-item .link {
+        color: #ffa500;
+        text-decoration: underline;
+        transition: color 0.2s ease;
+    }
 
-.proposal-form .form-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 165, 0, 0.1);
-}
+    .technical-item .link:hover {
+        color: #ff8c00;
+    }
 
-.proposal-form .cancel-btn {
-  padding: 12px 24px;
-  background: transparent;
-  border: 2px solid rgba(255, 165, 0, 0.3);
-  color: #FFA500;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 100px;
-}
+    /* Funding Section */
+    .funding-section {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
-.proposal-form .cancel-btn:hover {
-  background: rgba(255, 165, 0, 0.1);
-  border-color: #FFA500;
-  transform: translateY(-1px);
-}
+    /* Proposals Section */
+    .proposals-section {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
-.proposal-form .submit-btn {
-  padding: 12px 32px;
-  background: linear-gradient(135deg, #FFA500, #FF8C00);
-  border: none;
-  color: black;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 140px;
-  box-shadow: 0 4px 12px rgba(255, 165, 0, 0.3);
-}
+    .proposals-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
 
-.proposal-form .submit-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #FF8C00, #FFA500);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 165, 0, 0.4);
-}
+    .proposals-header h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0;
+    }
 
-.proposal-form .submit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
+    /* Update existing bounty-info styles */
+    .bounty-info {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        overflow: visible;
+    }
 
-.proposal-form .result {
-  text-align: center;
-  padding: 24px;
-  border-radius: 12px;
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  margin-bottom: 16px;
-}
+    .bounty-header {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
-.proposal-form .result p {
-  margin: 8px 0;
-  color: var(--text-primary, #333);
-}
+    .header-main {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
 
-[data-mode="dark"] .proposal-form .result p {
-  color: #ddd;
-}
+    @media (min-width: 768px) {
+        .header-main {
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+    }
 
-.proposal-form .result .transaction-link {
-  color: #FFA500;
-  text-decoration: none;
-  font-weight: 600;
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-}
+    .status-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
 
-.proposal-form .result .transaction-link:hover {
-  text-decoration: underline;
-}
+    /* Submit Proposal Form Styles */
 
-.proposal-form .error {
-  text-align: center;
-  padding: 24px;
-  border-radius: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  margin-bottom: 16px;
-}
+    .proposal-form {
+        position: relative;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        overflow-y: auto;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        animation: slideIn 0.3s ease-out;
+    }
 
-.proposal-form .error p {
-  margin: 0;
-  color: #ef4444;
-  font-weight: 500;
-}
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: scale(0.95) translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
 
-/* Responsive design */
-@media (max-width: 768px) {
-  .proposal-form {
-    width: 95%;
-    max-height: 95vh;
-  }
-  
-  .proposal-form .centered-form {
-    padding: 24px 20px;
-    padding-top: 50px;
-  }
-  
-  .proposal-form h2 {
-    font-size: 24px;
-  }
-  
-  .proposal-form .form-actions {
-    flex-direction: column-reverse;
-    gap: 8px;
-  }
-  
-  .proposal-form .cancel-btn,
-  .proposal-form .submit-btn {
-    width: 100%;
-    padding: 14px 24px;
-  }
-}
+    .proposal-form .close-button {
+        position: absolute;
+        top: 16px;
+        right: 20px;
+        width: 32px;
+        height: 32px;
+        border: none;
+        background: rgba(255, 69, 0, 0.1);
+        color: #ff4500;
+        font-size: 24px;
+        font-weight: bold;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        z-index: 10;
+    }
 
-/* Loading state animation */
-.proposal-form .submit-btn:disabled::after {
-  content: '';
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top: 2px solid currentColor;
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin 1s linear infinite;
-  margin-left: 8px;
-}
+    .proposal-form .close-button:hover {
+        background: rgba(255, 69, 0, 0.2);
+        transform: scale(1.1);
+    }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+    .proposal-form .centered-form {
+        padding: 32px;
+        padding-top: 60px; /* Account for close button */
+    }
 
-/* Form validation states */
-.proposal-form .form-input:invalid {
-  border-color: rgba(239, 68, 68, 0.5);
-}
+    .proposal-form h2 {
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0 0 24px 0;
+        color: #ffa500;
+        text-align: center;
+        position: relative;
+    }
 
-.proposal-form .form-input:valid:not(:placeholder-shown) {
-  border-color: rgba(34, 197, 94, 0.5);
-}
+    .proposal-form h2::after {
+        content: "";
+        position: absolute;
+        bottom: -8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 60px;
+        height: 3px;
+        background: linear-gradient(90deg, #ffa500, #ff8c00);
+        border-radius: 2px;
+    }
 
-/* Enhanced focus states */
-.proposal-form .form-input:focus-visible,
-.proposal-form .form-textarea:focus-visible {
-  outline: 2px solid #FFA500;
-  outline-offset: 2px;
-}
+    .proposal-form .form-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
 
-/* Smooth scrollbar for form */
-.proposal-form::-webkit-scrollbar {
-  width: 6px;
-}
+    .proposal-form .form-content {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+    }
 
-.proposal-form::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
+    .proposal-form .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
 
-.proposal-form::-webkit-scrollbar-thumb {
-  background: rgba(255, 165, 0, 0.3);
-  border-radius: 3px;
-}
+    .proposal-form .form-label {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary, #333);
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
 
-.proposal-form::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 165, 0, 0.5);
-}
+    /* Dark mode label color */
+    [data-mode="dark"] .proposal-form .form-label {
+        color: #ddd;
+    }
+
+    .proposal-form .form-label::before {
+        content: "";
+        width: 4px;
+        height: 4px;
+        background: #ffa500;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .proposal-form .form-input,
+    .proposal-form .form-textarea {
+        padding: 12px 16px;
+        border: 2px solid rgba(255, 165, 0, 0.2);
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: inherit;
+        transition: all 0.2s ease;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-primary, #333);
+        resize: vertical;
+        min-height: 44px;
+    }
+
+    /* Dark mode input styles */
+    [data-mode="dark"] .proposal-form .form-input,
+    [data-mode="dark"] .proposal-form .form-textarea {
+        background: rgba(255, 255, 255, 0.05);
+        color: #ddd;
+        border-color: rgba(255, 165, 0, 0.3);
+    }
+
+    .proposal-form .form-input:focus,
+    .proposal-form .form-textarea:focus {
+        outline: none;
+        border-color: #ffa500;
+        box-shadow: 0 0 0 3px rgba(255, 165, 0, 0.1);
+        background: rgba(255, 165, 0, 0.05);
+    }
+
+    .proposal-form .form-input::placeholder,
+    .proposal-form .form-textarea::placeholder {
+        color: rgba(133, 133, 133, 0.7);
+        font-style: italic;
+    }
+
+    .proposal-form .form-textarea {
+        min-height: 100px;
+        font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono",
+            monospace;
+        line-height: 1.5;
+    }
+
+    .proposal-form .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid rgba(255, 165, 0, 0.1);
+    }
+
+    .proposal-form .cancel-btn {
+        padding: 12px 24px;
+        background: transparent;
+        border: 2px solid rgba(255, 165, 0, 0.3);
+        color: #ffa500;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-width: 100px;
+    }
+
+    .proposal-form .cancel-btn:hover {
+        background: rgba(255, 165, 0, 0.1);
+        border-color: #ffa500;
+        transform: translateY(-1px);
+    }
+
+    .proposal-form .submit-btn {
+        padding: 12px 32px;
+        background: linear-gradient(135deg, #ffa500, #ff8c00);
+        border: none;
+        color: black;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-width: 140px;
+        box-shadow: 0 4px 12px rgba(255, 165, 0, 0.3);
+    }
+
+    .proposal-form .submit-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #ff8c00, #ffa500);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(255, 165, 0, 0.4);
+    }
+
+    .proposal-form .submit-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .proposal-form .result {
+        text-align: center;
+        padding: 24px;
+        border-radius: 12px;
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        margin-bottom: 16px;
+    }
+
+    .proposal-form .result p {
+        margin: 8px 0;
+        color: var(--text-primary, #333);
+    }
+
+    [data-mode="dark"] .proposal-form .result p {
+        color: #ddd;
+    }
+
+    .proposal-form .result .transaction-link {
+        color: #ffa500;
+        text-decoration: none;
+        font-weight: 600;
+        font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono",
+            monospace;
+    }
+
+    .proposal-form .result .transaction-link:hover {
+        text-decoration: underline;
+    }
+
+    .proposal-form .error {
+        text-align: center;
+        padding: 24px;
+        border-radius: 12px;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        margin-bottom: 16px;
+    }
+
+    .proposal-form .error p {
+        margin: 0;
+        color: #ef4444;
+        font-weight: 500;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .proposal-form {
+            width: 95%;
+            max-height: 95vh;
+        }
+
+        .proposal-form .centered-form {
+            padding: 24px 20px;
+            padding-top: 50px;
+        }
+
+        .proposal-form h2 {
+            font-size: 24px;
+        }
+
+        .proposal-form .form-actions {
+            flex-direction: column-reverse;
+            gap: 8px;
+        }
+
+        .proposal-form .cancel-btn,
+        .proposal-form .submit-btn {
+            width: 100%;
+            padding: 14px 24px;
+        }
+    }
+
+    /* Loading state animation */
+    .proposal-form .submit-btn:disabled::after {
+        content: "";
+        width: 16px;
+        height: 16px;
+        border: 2px solid transparent;
+        border-top: 2px solid currentColor;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 1s linear infinite;
+        margin-left: 8px;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    /* Form validation states */
+    .proposal-form .form-input:invalid {
+        border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    .proposal-form .form-input:valid:not(:placeholder-shown) {
+        border-color: rgba(34, 197, 94, 0.5);
+    }
+
+    /* Enhanced focus states */
+    .proposal-form .form-input:focus-visible,
+    .proposal-form .form-textarea:focus-visible {
+        outline: 2px solid #ffa500;
+        outline-offset: 2px;
+    }
+
+    /* Smooth scrollbar for form */
+    .proposal-form::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .proposal-form::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+    }
+
+    .proposal-form::-webkit-scrollbar-thumb {
+        background: rgba(255, 165, 0, 0.3);
+        border-radius: 3px;
+    }
+
+    .proposal-form::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 165, 0, 0.5);
+    }
 
     /* Base Layout */
     .bounty-detail {
@@ -2477,10 +2174,9 @@
 
     /* Responsive Design */
     @media (min-width: 768px) {
-
         .metadata-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
+            grid-template-columns: repeat(2, 1fr);
+        }
 
         .bounty-container {
             grid-template-columns: 1fr 1fr;
@@ -2505,10 +2201,9 @@
     }
 
     @media (max-width: 767px) {
-
         .metadata-grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
+            grid-template-columns: repeat(3, 1fr);
+        }
 
         .bounty-detail {
             padding: 1rem;

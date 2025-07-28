@@ -5,11 +5,13 @@
 */
 
 import { type Box, SAFE_MIN_BOX_VALUE } from "@fleet-sdk/core";
-import { type Bounty, type TokenEIP4, getBountyContent, getConstantContent } from "../common/bounty";
+import { type Bounty, type TokenEIP4, getBountyContent, getConstantContent} from "../common/bounty";
 import { ErgoPlatform } from "./platform";
 import { hexToUtf8 } from "./utils";
 import { explorer_uri } from "./envs";
 import { type contract_version, get_template_hash } from "./contract";
+import { get_proposal_template_hash, type proposal_contract_version } from "./proposal_contract";
+import { Buffer } from "buffer";
 
 const expectedSigmaTypes = {
     R4: 'SInt',
@@ -231,4 +233,97 @@ export async function fetch_bounties(offset: number = 0): Promise<Map<string, Bo
         console.error('Error while making the POST request:', error);
         return new Map();
     }
+}
+export interface ParsedProposal {
+  proposer: string;
+  bountyId: string;
+  title: string;
+  url: string;
+  cost: number;
+}
+
+function decodeRegister(value: string): string {
+  try {
+    const hex = value.startsWith("0e") ? value.slice(2) : value;
+    const bytes = Uint8Array.from(Buffer.from(hex, "hex"));
+    const decoded = new TextDecoder().decode(bytes);
+
+    // Trim leading junk before first '{'
+    const jsonStart = decoded.indexOf("{");
+    if (jsonStart !== -1) {
+      return decoded.slice(jsonStart);
+    }
+
+    return decoded;
+  } catch (err) {
+    console.warn("Failed to decode register value:", value, err);
+    return "";
+  }
+}
+
+export async function fetch_proposals(
+  version: proposal_contract_version
+): Promise<(Box & { platform: ErgoPlatform; parsed: ParsedProposal })[]> {
+  const proposals: (Box & { platform: ErgoPlatform; parsed: ParsedProposal })[] = [];
+  const step = 50;
+  let offset = 0;
+  const templateHash = get_proposal_template_hash(version);
+
+  while (true) {
+    const res = await fetch(
+      `${explorer_uri}/api/v1/boxes/unspent/search?offset=${offset}&limit=${step}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ergoTreeTemplateHash: templateHash,
+          registers: {},
+          constants: {},
+          assets: []
+        }),
+      }
+    );
+
+    if (!res.ok) break;
+
+    const { items } = await res.json();
+    if (!items || items.length === 0) break;
+
+    for (const box of items) {
+      const registers = box.additionalRegisters;
+      if (!registers?.R4 || !registers?.R5 || !registers?.R6) continue;
+
+      try {
+        // Prefer serializedValue if present; fallback to renderedValue
+        const proposerHex = registers.R4.serializedValue || registers.R4.renderedValue;
+        const bountyIdHex = registers.R5.serializedValue || registers.R5.renderedValue;
+        const metadataHex = registers.R6.serializedValue || registers.R6.renderedValue;
+
+        const proposer = decodeRegister(proposerHex);
+        const bountyId = decodeRegister(bountyIdHex);
+        const metadataJson = decodeRegister(metadataHex);
+        const metadata = JSON.parse(metadataJson ?? "{}");
+
+        proposals.push({
+          ...box,
+          platform: new ErgoPlatform(),
+          parsed: {
+            proposer,
+            bountyId,
+            title: metadata.title ?? "Untitled",
+            url: metadata.url ?? "",
+            cost: metadata.cost ?? 0
+          }
+        });
+      } catch (err) {
+        console.warn("Failed to decode proposal box:", box.boxId, err);
+      }
+    }
+
+    offset += step;
+  }
+
+  return proposals;
 }

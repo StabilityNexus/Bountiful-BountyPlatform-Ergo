@@ -1,7 +1,7 @@
 <script lang="ts">
     import { block_to_date, block_to_time } from "$lib/common/countdown";
     import { is_ended, min_submissions, type Bounty } from "$lib/common/bounty";
-    import { bounty_detail } from "$lib/common/store";
+    import { bounty_detail, proposal_detail } from "$lib/common/store";
     import { badgeVariants } from "$lib/components/ui/badge";
     import { Button } from "$lib/components/ui/button";
     import * as Card from "$lib/components/ui/card";
@@ -20,12 +20,28 @@
     let statusColor = "";
     let showFullDescription = false;
     let isCurrentUserJudge: boolean = false;
+    let actualProposalsCount = 0;
 
     function truncateAddress(address: string): string {
         if (!address) return "";
         return address.length > 10
             ? `${address.slice(0, 6)}...${address.slice(-4)}`
             : address;
+    }
+
+    // Subscribe to proposal store to get real-time count
+    $: if (bounty && $proposal_detail) {
+        // Filter proposals for this specific bounty
+        const filteredProposals = $proposal_detail.filter((proposal) => {
+            const proposalBountyId = proposal.bountyId;
+            const cleanBountyId = proposalBountyId?.startsWith("@")
+                ? proposalBountyId.substring(1)
+                : proposalBountyId;
+            return cleanBountyId === bounty.bounty_id;
+        });
+        actualProposalsCount = filteredProposals.length;
+    } else if (bounty) {
+        actualProposalsCount = proposalsCount; // fallback to passed prop
     }
 
     async function load() {
@@ -144,7 +160,7 @@
                 <div
                     class="bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded text-xs flex-shrink-0 self-start sm:self-center"
                 >
-                    🧑‍💻 {proposalsCount} Proposal{proposalsCount !== 1
+                    🧑‍💻 {actualProposalsCount} Proposal{actualProposalsCount !== 1
                         ? "s"
                         : ""}
                 </div>

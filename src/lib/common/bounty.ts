@@ -38,9 +38,9 @@ export interface Bounty {
     block_limit: number,
     min_submissions: number,
     max_submissions: number,
-    value: number,  // Real exact value
-    collected_value: number,  // Value collected
-    current_value: number,  // Current value - contract reserves (ex: min box value on ergo)
+    value: number,  
+    collected_value: number,  
+    current_value: number,  
     total_pft_amount: number,
     current_pft_amount: number,
     unsold_pft_amount: number,
@@ -118,13 +118,3 @@ export function getConstantContent(value: string): ConstantContent | null {
         return null;
     }
 }
-
-// // Helper function to get judges from a bounty
-// export function getBountyJudges(bounty: Bounty): string[] {
-//     return bounty.content.judges || [];
-// }
-
-// // Helper function to check if a specific address is a judge for a bounty
-// export function isJudgeForBounty(bounty: Bounty, address: string): boolean {
-//     return (bounty.content.judges ?? []).includes(address);
-// }

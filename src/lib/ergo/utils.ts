@@ -61,3 +61,50 @@ export function uint8ArrayToHex(array: Uint8Array): string {
         .map(x => x.toString(16).padStart(2, '0'))
         .join('');
 }
+
+export function parseErgoRegisterJson(rawHex: string): string | null {
+    try {
+        if (!rawHex || typeof rawHex !== "string") return null;
+
+        // Serialized Ergo values for Coll[Byte] typically start with 0e
+        // Format: 0eXX + actual hex body
+        if (rawHex.startsWith("0e")) {
+            const lengthByte = parseInt(rawHex.slice(2, 4), 16); // number of bytes
+            const hexBody = rawHex.slice(4, 4 + lengthByte * 2);
+
+            const byteArray = new Uint8Array(hexBody.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)));
+            const decoded = new TextDecoder().decode(byteArray);
+            return decoded;
+        }
+
+        // Optional fallback: some edge cases (e.g., legacy serialized string starts with "0c")
+        if (rawHex.startsWith("0c")) {
+            const hexBody = rawHex.slice(2);
+            const byteArray = new Uint8Array(hexBody.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)));
+            return new TextDecoder().decode(byteArray);
+        }
+
+        // Default fallback
+        return null;
+    } catch (e) {
+        console.error("Failed to decode Ergo register from hex:", rawHex, e);
+        return null;
+    }
+}
+
+export function getRegisterUtf8Value(register: any): string | null {
+    if (typeof register === 'object' && 'renderedValue' in register) {
+        return register.renderedValue;
+    }
+
+    if (typeof register === 'string') {
+        return parseErgoRegisterJson(register);
+    }
+
+    return null;
+}
+
+export function toBytes(str: string): number[] {
+  return Array.from(new TextEncoder().encode(str));
+}
+

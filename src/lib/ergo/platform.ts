@@ -10,13 +10,16 @@ import { temp_exchange } from './actions/temp_exchange';
 import { explorer_uri, network_id } from './envs';
 import { address, connected, network, balance } from "../common/store";
 import { type contract_version } from './contract';
+import { type Proposal } from "../common/proposal";
+import { type proposal_contract_version } from "./proposal_contract";
+import { fetch_proposals } from './fetch';
 
 declare const ergo: {
-    get_change_address(): Promise<string>;
-    get_utxos(): Promise<any[]>;
-    get_current_height(): Promise<number>;
-    sign_tx(tx: any): Promise<any>;
-    submit_tx(tx: any): Promise<string>;
+  get_change_address(): Promise<string>;
+  get_utxos(): Promise<any[]>;
+  get_current_height(): Promise<number>;
+  sign_tx(tx: any): Promise<any>;
+  submit_tx(tx: any): Promise<string>;
 };
 
 // Type declarations for Ergo globals - Updated to match types.d.ts
@@ -46,28 +49,28 @@ export class ErgoPlatform implements Platform {
   last_version: contract_version = "v1_0";
 
   // --- Wallet Connection ---
-    async connect(): Promise<void> {
-        if (typeof window.ergoConnector !== 'undefined') {
-            const nautilus = window.ergoConnector.nautilus;
-            if (nautilus) {
-                if (await nautilus.connect()) {
-                    console.log('Connected!');
-                    address.set(await ergo.get_change_address());
-                    network.set((network_id == "mainnet") ? "ergo-mainnet" : "ergo-testnet");
-                    await this.get_balance();
-                    connected.set(true);
-                } else {
-                    alert('Not connected!');
-                }
-            } else {
-                alert('Nautilus Wallet is not active');
-            }
-            } /*else {
+  async connect(): Promise<void> {
+    if (typeof window.ergoConnector !== 'undefined') {
+      const nautilus = window.ergoConnector.nautilus;
+      if (nautilus) {
+        if (await nautilus.connect()) {
+          console.log('Connected!');
+          address.set(await ergo.get_change_address());
+          network.set((network_id == "mainnet") ? "ergo-mainnet" : "ergo-testnet");
+          await this.get_balance();
+          connected.set(true);
+        } else {
+          alert('Not connected!');
+        }
+      } else {
+        alert('Nautilus Wallet is not active');
+      }
+    } /*else {
                 alert('No wallet available');
             } */
-    }
+  }
 
-    async get_address(): Promise<string> {
+  async get_address(): Promise<string> {
     try {
       return await ergo.get_change_address();
     } catch (error) {
@@ -76,26 +79,26 @@ export class ErgoPlatform implements Platform {
     }
   }
 
-    async get_current_height(): Promise<number> {
-        try {
-            // If connected to the Ergo wallet, get the current height directly
-            return await ergo.get_current_height();
-        } catch {
-            // Fallback to fetching the current height from the Ergo API
-            try {
-                const response = await fetch(explorer_uri+'/api/v1/networkState');
-                if (!response.ok) {
-                    throw new Error(`API request failed with status: ${response.status}`);
-                }
-    
-                const data = await response.json();
-                return data.height; // Extract and return the height
-            } catch (error) {
-                console.error("Failed to fetch network height from API:", error);
-                throw new Error("Unable to get current height.");
-            }
+  async get_current_height(): Promise<number> {
+    try {
+      // If connected to the Ergo wallet, get the current height directly
+      return await ergo.get_current_height();
+    } catch {
+      // Fallback to fetching the current height from the Ergo API
+      try {
+        const response = await fetch(explorer_uri + '/api/v1/networkState');
+        if (!response.ok) {
+          throw new Error(`API request failed with status: ${response.status}`);
         }
+
+        const data = await response.json();
+        return data.height; // Extract and return the height
+      } catch (error) {
+        console.error("Failed to fetch network height from API:", error);
+        throw new Error("Unable to get current height.");
+      }
     }
+  }
 
   async get_balance(id?: string): Promise<Map<string, number>> {
     const balanceMap = new Map<string, number>();
@@ -130,49 +133,99 @@ export class ErgoPlatform implements Platform {
   }
 
   async buy_refund(bounty: Bounty, token_amount: number): Promise<string | null> {
-        return await buy_refund(bounty, token_amount);
-    }
+    return await buy_refund(bounty, token_amount);
+  }
 
-    async rebalance(bounty: Bounty, token_amount: number): Promise<string | null> {
-        return await rebalance(bounty, token_amount);
-    }
+  async rebalance(bounty: Bounty, token_amount: number): Promise<string | null> {
+    return await rebalance(bounty, token_amount);
+  }
 
   // --- Core Bounty Management ---
-async submit(
-        version: contract_version,
-        token_id: string,
-        token_amount: number,
-        blockLimit: number,
-        exchangeRate: number,
-        bountyContent: string,
-        minimumSold: number,
-        title: string,
-        judgeAddresses: string[]
-    ): Promise<string | null> {
-        return await submit_bounty(
-            version,
-            token_id,
-            token_amount,
-            blockLimit,
-            exchangeRate,
-            bountyContent,
-            minimumSold,
-            title,
-            judgeAddresses
-        );
-    }
+  async submit(
+    version: contract_version,
+    token_id: string,
+    token_amount: number,
+    blockLimit: number,
+    exchangeRate: number,
+    bountyContent: string,
+    minimumSold: number,
+    title: string,
+    judgeAddresses: string[]
+  ): Promise<string | null> {
+    return await submit_bounty(
+      version,
+      token_id,
+      token_amount,
+      blockLimit,
+      exchangeRate,
+      bountyContent,
+      minimumSold,
+      title,
+      judgeAddresses
+    );
+  }
 
-    async withdraw(bounty:Bounty, amount: number): Promise<string | null> {
-        return await withdraw(bounty, amount);
-    }
+  async withdraw(bounty: Bounty, amount: number): Promise<string | null> {
+    return await withdraw(bounty, amount);
+  }
 
-    async temp_exchange(bounty:Bounty, token_amount: number): Promise<string | null> {
-        return await temp_exchange(bounty, token_amount);
-    }
+  async temp_exchange(bounty: Bounty, token_amount: number): Promise<string | null> {
+    return await temp_exchange(bounty, token_amount);
+  }
 
-    async fetch(offset: number = 0): Promise<Map<string, Bounty>> {
-        
-        return await fetch_bounties(offset);
+  async fetch(offset: number = 0): Promise<Map<string, Bounty>> {
+
+    return await fetch_bounties(offset);
+  }
+
+  // Method to get current height and calculate genesis timestamp dynamically
+  private async calculateGenesisTimestamp(): Promise<number> {
+    try {
+      const currentHeight = await this.get_current_height();
+      const currentTime = Date.now();
+
+      // Calculate genesis timestamp: current_time - (current_height * time_per_block)
+      const calculatedGenesis = currentTime - (currentHeight * this.time_per_block);
+
+      return calculatedGenesis;
+    } catch (error) {
+      console.error("Failed to calculate genesis timestamp, using fallback:", error);
+      // Fallback to July 1, 2019 00:00:00 UTC
+      return 1561939200000;
     }
   }
 
+  private async blockHeightToDate(height: number): Promise<Date> {
+    if (height <= 0) {
+      console.warn(`Invalid block height: ${height}, using current time`);
+      return new Date();
+    }
+
+    const genesisTimestamp = await this.calculateGenesisTimestamp();
+    const calculatedTime = genesisTimestamp + (height * this.time_per_block);
+    return new Date(calculatedTime);
+  }
+
+  async fetchProposals(): Promise<Proposal[]> {
+    const version: proposal_contract_version = "v1_0";
+    const boxesWithParsed = await fetch_proposals(version);
+
+    return Promise.all(boxesWithParsed.map(async (box) => ({
+      id: box.boxId,
+      proposer: box.parsed.proposer,
+      bountyId: box.parsed.bountyId,
+      title: box.parsed.title,
+      url: box.parsed.url,
+      cost: box.parsed.cost,
+      platform: box.platform,
+      box: box,
+      developer: box.parsed.proposer,
+      summary: box.parsed.title,
+      status: "pending",
+      submittedAt: await this.blockHeightToDate(box.creationHeight),
+      boxId: box.boxId,
+      rawContent: JSON.stringify(box.additionalRegisters),
+      registers: box.additionalRegisters,
+    })));
+  }
+}

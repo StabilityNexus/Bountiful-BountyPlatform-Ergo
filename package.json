@@ -10,7 +10,7 @@
     "deploy": "npm run build && npx gh-pages -d build"
   },
   "dependencies": {
-    "@fleet-sdk/compiler": "^0.8.1",
+    "@fleet-sdk/compiler": "^0.8.5",
     "@fleet-sdk/crypto": "^0.9.1",
     "@tailwindcss/typography": "^0.5.16",
     "bits-ui": "^0.22.0",
