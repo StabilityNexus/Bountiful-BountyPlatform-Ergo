@@ -146,7 +146,7 @@ export async function submit_bounty(
         structuredContent = { description: bountyContent };
     }
     structuredContent.title = title;
-    structuredContent.judges = judgeAddresses;
+    structuredContent.judges = judgeAddresses || [];
 
     const finalBountyContent = JSON.stringify(structuredContent);
 

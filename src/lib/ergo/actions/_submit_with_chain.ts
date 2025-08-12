@@ -71,7 +71,7 @@ export async function submit_bounty(
 
     // Add title and judges to the content
     structuredContent.title = title;
-    structuredContent.judges = judgeAddress;
+    structuredContent.judges = judgeAddress || [];
 
     // Convert back to JSON string for storage in R9
     const finalBountyContent = JSON.stringify(structuredContent);

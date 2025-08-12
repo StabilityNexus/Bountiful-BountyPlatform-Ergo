@@ -547,7 +547,8 @@
         const currentAddress = (await $address) || "";
         console.log("Checking if current address is a judge:", currentAddress);
         isCurrentUserJudge =
-            bounty.content?.judges?.includes(currentAddress) ?? false;
+            Array.isArray(bounty.content?.judges) &&
+            bounty.content.judges.includes(currentAddress);
     }
 
     onMount(async () => {

@@ -184,6 +184,9 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
   val selfBountyMetadata = SELF.R9[Coll[Byte]].get
   val selfScript = SELF.propositionBytes
 
+  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
+  val minimumContributionReached = selfContributedCounter >= selfMinimumContribution
+
   // Validation of the box replication process
   val isSelfReplication = {
 
@@ -242,7 +245,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
   val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
   val maintainValue = selfValue == OUTPUTS(0).value
 
-  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
+  // val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
   
   val isToBountyCreatorAddress = {
     val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
@@ -274,12 +277,12 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     outTokens - selfTokens
   }
 
-  val minimumContributionReached = {
-    val minimumContributionThreshold = selfMinimumContribution
-    val contributedCounter = selfContributedCounter
+  // val minimumContributionReached = {
+  //   val minimumContributionThreshold = selfMinimumContribution
+  //   val contributedCounter = selfContributedCounter
 
-    contributedCounter >= minimumContributionThreshold
-  }
+  //   contributedCounter >= minimumContributionThreshold
+  // }
 
   //  ACTIONS
 
@@ -466,6 +469,119 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     ))
   }
 
+  val isCreatorApproveProposal = {
+    // Verify creator signature
+    val creatorSignature = bountyCreatorAddr
+
+    // Verify minimum contribution threshold is met
+    val thresholdMet = minimumContributionReached
+
+    // Find the approved proposal in data inputs
+    val proposalExists = CONTEXT.dataInputs.exists({ (dataInput: Box) =>
+      dataInput.R5[Coll[Byte]].isDefined && 
+      dataInput.R5[Coll[Byte]].get == selfId &&
+      dataInput.R4[GroupElement].isDefined
+    })
+
+    val approvedProposal = CONTEXT.dataInputs.filter({ (dataInput: Box) =>
+      dataInput.R5[Coll[Byte]].isDefined && 
+      dataInput.R5[Coll[Byte]].get == selfId &&
+      dataInput.R4[GroupElement].isDefined
+    })(0)
+
+    val proposerPK = approvedProposal.R4[GroupElement].get
+
+    // Calculate reward distribution
+    val minerFeeAmount = 1100000L
+    val devFee = `+dev_fee+`
+    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { 
+      selfValue - OUTPUTS(0).value 
+    } else { 
+      selfValue 
+    }
+    val devFeeAmount = extractedValue * devFee / 100
+    val proposerReward = extractedValue - devFeeAmount - minerFeeAmount
+
+    // Verify proposer receives correct ERG reward
+    val correctProposerERGReward = {
+      val proposerOutputs = OUTPUTS.filter({ (output: Box) =>
+        val propAndBox = (sigmaProp(proveDlog(proposerPK)), output)
+        isSigmaPropEqualToBoxProp(propAndBox)
+      })
+      proposerOutputs.size >= 1 && proposerOutputs.map({ (box: Box) => box.value }).fold(0L, { (a: Long, b: Long) => a + b }) >= proposerReward
+    }
+
+    // Verify dev fee payment
+    val correctDevFee = {
+      if (devFeeAmount > 0) {
+        val devOutput = OUTPUTS.exists({ (output: Box) =>
+          fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(output.propositionBytes) &&
+          output.value >= devFeeAmount
+        })
+        devOutput
+      } else {
+        true
+      }
+    }
+
+    // Handle PFT token distribution
+    val correctPFTDistribution = {
+      if (SELF.tokens.size > 1) {
+        val pftTokenId = SELF.tokens(1)._1
+        val totalPFT = SELF.tokens(1)._2
+        
+        // Calculate PFT allocation
+        val contributorsPFT = selfContributedCounter
+        val remainingPFT = totalPFT - contributorsPFT
+        
+        if (remainingPFT > 0) {
+          // Proposer should receive remaining PFT tokens
+          val proposerReceivesPFT = OUTPUTS.exists({ (output: Box) =>
+            val propAndBox = (sigmaProp(proveDlog(proposerPK)), output)
+            isSigmaPropEqualToBoxProp(propAndBox) &&
+            output.tokens.exists({ (token: (Coll[Byte], Long)) =>
+              val tokenId = token._1
+              val amount = token._2
+              tokenId == pftTokenId && amount >= remainingPFT
+            })
+          })
+          proposerReceivesPFT
+        } else {
+          true
+        }
+      } else {
+        true
+      }
+    }
+
+    // Contract replication or termination logic
+    val endOrReplicate = {
+      val allFundsWithdrawn = extractedValue == selfValue
+      val allTokensDistributed = SELF.tokens.size == 1 || SELF.tokens(1)._2 <= selfContributedCounter
+      
+      if (allFundsWithdrawn && allTokensDistributed) {
+        true // Contract can be terminated
+      } else {
+        // Contract must be replicated for remaining operations
+        isSelfReplication && 
+        APTokenRemainsConstant && 
+        contributedCounterRemainsConstant && 
+        refundCounterRemainsConstant && 
+        auxiliarExchangeCounterRemainsConstant
+      }
+    }
+
+    allOf(Coll(
+      creatorSignature,
+      thresholdMet,
+      proposalExists,
+      correctProposerERGReward,
+      correctDevFee,
+      correctPFTDistribution,
+      endOrReplicate
+    ))
+  }
+
   // > Bounty creators may withdraw unused reward tokens from the contract at any time.
   val isWithdrawUnusedRewardTokens = {
     // Calculate that only unused reward tokens are withdrawn, otherwise there will be problems with the APT -> PFT exchange.
@@ -580,7 +696,8 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     isClaimBountyReward,
     isWithdrawUnusedRewardTokens,
     isAddRewardTokens,
-    isExchangeContributionTokens
+    isExchangeContributionTokens,
+    isCreatorApproveProposal
   ))
 
   // Validates that the contract was built correctly. Otherwise, it cannot be used.
@@ -623,7 +740,7 @@ function handle_contract_generator(version: contract_version) {
 export function get_address(constants: ConstantContent, version: contract_version) {
 
     // In case that dev_hash is undefined, we try to use the current contract hash. But the tx will fail if the hash is different.
-    let contract = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id);
+    let contract = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id );
     let ergoTree = compile(contract, {version: 1, network: network_id})
 
     let network = (network_id == "mainnet") ? Network.Mainnet : Network.Testnet;
@@ -671,7 +788,7 @@ function get_contract_hash(constants: ConstantContent, version: contract_version
             constants.creator, 
             constants.dev_hash ?? get_dev_contract_hash(), 
             constants.dev_fee, 
-            constants.token_id
+            constants.token_id,
         );
         
         const ergoTree = compile(contract, {
