@@ -185,8 +185,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
   val selfScript = SELF.propositionBytes
 
   val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
-  val minimumContributionReached = selfContributedCounter >= selfMinimumContribution
-
+  
   // Validation of the box replication process
   val isSelfReplication = {
 
@@ -244,8 +243,6 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
   val refundCounterRemainsConstant = selfRefundCounter == OUTPUTS(0).R6[Coll[Long]].get(1)
   val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
   val maintainValue = selfValue == OUTPUTS(0).value
-
-  // val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
   
   val isToBountyCreatorAddress = {
     val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
@@ -276,13 +273,6 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     // Return the difference between output tokens and self tokens
     outTokens - selfTokens
   }
-
-  // val minimumContributionReached = {
-  //   val minimumContributionThreshold = selfMinimumContribution
-  //   val contributedCounter = selfContributedCounter
-
-  //   contributedCounter >= minimumContributionThreshold
-  // }
 
   //  ACTIONS
 
@@ -346,6 +336,13 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
 
   // Validation for refunding contributions
   val isRefundTokens = {
+
+    val minimumContributionReached = {
+      val minimumContributionThreshold = selfMinimumContribution
+      val contributedCounter = selfContributedCounter
+
+      contributedCounter >= minimumContributionThreshold
+    }
 
     // > People should be allowed to exchange tokens for ERGs if and only if the deadline has passed and the minimum number of tokens has not been sold.
     val canBeRefund = {
@@ -415,8 +412,20 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     ))
   }
 
-  // Validation for claiming bounty reward by solution provider
-  val isClaimBountyReward = {
+// Fixed version of isClaimBountyReward with proper output checks
+val isClaimBountyReward = {
+
+  val minimumContributionReached = {
+    val minimumContributionThreshold = selfMinimumContribution
+    val contributedCounter = selfContributedCounter
+
+    contributedCounter >= minimumContributionThreshold
+  }
+
+  // First check if we have enough outputs for this action
+  if (OUTPUTS.size < 3) {
+    false // Not a claim bounty reward transaction
+  } else {
     // Anyone can claim the bounty reward and send it to the solution provider address.
     
     val minerFeeAmount = 1100000  // Pay miner fee with the extracted value allows to claim when solution provider address does not have ergs.
@@ -465,10 +474,13 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
       minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
       isToBountyCreatorAddress,                   // Only to the bounty creator address (for now - later this will be to solution provider)
       correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
-      correctBountyAmount               // Ensures the correct solution provider amount.
+      correctBountyAmount                         // Ensures the correct solution provider amount.
     ))
   }
+}
 
+  // COMMENTED OUT - Creator Approve Proposal action
+  /*
   val isCreatorApproveProposal = {
     // Verify creator signature
     val creatorSignature = bountyCreatorAddr
@@ -571,8 +583,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
       }
     }
 
-    allOf(Coll(
-      creatorSignature,
+    bountyCreatorAddr && allOf(Coll(
       thresholdMet,
       proposalExists,
       correctProposerERGReward,
@@ -581,6 +592,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
       endOrReplicate
     ))
   }
+  */
 
   // > Bounty creators may withdraw unused reward tokens from the contract at any time.
   val isWithdrawUnusedRewardTokens = {
@@ -636,6 +648,13 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
   
   // Exchange APT (token that identifies contributors used as temporary contribution token) with PFT (bounty reward token)
   val isExchangeContributionTokens = {
+
+    val minimumContributionReached = {
+      val minimumContributionThreshold = selfMinimumContribution
+      val contributedCounter = selfContributedCounter
+
+      contributedCounter >= minimumContributionThreshold
+    }
 
     val deltaTemporaryContributionTokenAdded = {
       val selfTCT = SELF.tokens(0)._2
@@ -696,8 +715,8 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     isClaimBountyReward,
     isWithdrawUnusedRewardTokens,
     isAddRewardTokens,
-    isExchangeContributionTokens,
-    isCreatorApproveProposal
+    isExchangeContributionTokens
+    // isCreatorApproveProposal - COMMENTED OUT FOR TESTING
   ))
 
   // Validates that the contract was built correctly. Otherwise, it cannot be used.

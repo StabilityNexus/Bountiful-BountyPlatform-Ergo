@@ -9,29 +9,28 @@ import { type Bounty } from '$lib/common/bounty';
 declare const ergo: any;
 /**
  * Refund a bounty to the creator if conditions are met (e.g., deadline passed and
- * no accepted submissions or minimum submissions not met).
+ * minimum submissions not met).
  * Note: This function can be called by any wallet. The `walletPk` of the caller
  * is used for paying transaction fees and receiving change. The refund always
- * goes to the `bounty.creator`.
+ * goes to the `bounty.constants.creator`.
  */
 export async function refund_bounty(
     bounty: Bounty
 ): Promise<string|null> {
     
+    const current_height = await ergo.get_current_height();
+
     // Verify deadline has passed
-    // Note: bounty.current_height is expected to be populated by the calling application
-    // with the current blockchain height at the time of forming the transaction.
-    if (bounty.current_height && bounty.deadline && bounty.current_height <= bounty.deadline) {
+    if (current_height <= bounty.block_limit) {
         alert("Cannot refund before deadline");
         return null;
     }
     
-    // Verify refund conditions (no accepted submissions or minimum not met)
-    const noAcceptedSubmissions = !bounty.accepted_submissions || bounty.accepted_submissions <= 0;
+    // Verify refund conditions (minimum not met)
     const minNotMet = (bounty.total_submissions ?? 0) < (bounty.min_submissions || 0);
     
-    if (!noAcceptedSubmissions && !minNotMet) {
-        alert("Refund conditions not met");
+    if (!minNotMet) {
+        alert("Refund conditions not met. Minimum submissions were met.");
         return null;
     }
     
@@ -41,7 +40,7 @@ export async function refund_bounty(
     // Get the UTXOs from the current wallet to use as inputs
     const inputs = [bounty.box, ...(await ergo.get_utxos())];
 
-    if ((bounty.reward_amount || 0) < SAFE_MIN_BOX_VALUE) {
+    if ((bounty.current_value || 0) < SAFE_MIN_BOX_VALUE) {
         alert("Bounty reward amount is less than the minimum box value, cannot process refund as a valid output.");
         return null;
     }
@@ -49,8 +48,8 @@ export async function refund_bounty(
     // Output for the transaction (refund to creator)
     let outputs = [
         new OutputBuilder(
-            BigInt(bounty.reward_amount || 0), // Value checked against SAFE_MIN_BOX_VALUE above
-            bounty.creator || ''
+            BigInt(bounty.current_value || 0), // Value checked against SAFE_MIN_BOX_VALUE above
+            bounty.constants.creator || ''
         )
     ];
 

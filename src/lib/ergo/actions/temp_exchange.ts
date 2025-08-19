@@ -33,18 +33,18 @@ export async function temp_exchange(
 
     // Building the project output
     let contractOutput = new OutputBuilder(
-        BigInt(bounty.value),
+        BigInt(bounty.value).toString(),
         get_address(bounty.constants, bounty.version)
     )
     .addTokens({
         tokenId: bounty.bounty_id,
-        amount: BigInt(bounty.current_idt_amount + token_amount)
+        amount: BigInt(bounty.current_idt_amount + token_amount).toString()
     });
 
     if (bounty.current_pft_amount !== token_amount) {
         contractOutput.addTokens({
             tokenId: bounty.token_id,
-            amount: BigInt(bounty.current_pft_amount - token_amount)
+            amount: BigInt(bounty.current_pft_amount - token_amount).toString()
         });
     }
 
@@ -58,12 +58,12 @@ export async function temp_exchange(
     });
 
     let walletOutput = new OutputBuilder(
-        SAFE_MIN_BOX_VALUE,
+        SAFE_MIN_BOX_VALUE.toString(),
         walletPk
     )
     .addTokens({
         tokenId: bounty.token_id,
-        amount: BigInt(token_amount)
+        amount: BigInt(token_amount).toString()
     });
 
     let outputs = [contractOutput, walletOutput];

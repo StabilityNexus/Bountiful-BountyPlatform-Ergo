@@ -8,6 +8,7 @@ import {
 } from '@fleet-sdk/core';
 import { type contract_version } from '../contract';
 import { get_dev_contract_address, get_dev_fee } from '../dev/dev_contract';
+import { hexToErgoAddress } from '../../common/proposal'; // Import the utility
 
 // Extended interfaces to match contract structure
 export interface BountyBox extends Box<Amount> {
@@ -199,7 +200,7 @@ function decodeProposalBountyId(proposalBox: ProposalBox | any): string {
             
             // Convert hex to string (bounty ID was stored as string bytes)
             try {
-                const bountyId = dataHex.match(/.{2}/g)?.map(byte => 
+                const bountyId = dataHex.match(/.{2}/g)?.map((byte: string) => 
                     String.fromCharCode(parseInt(byte, 16))
                 ).join('') || '';
                 
@@ -411,6 +412,18 @@ function sanitizeDeveloperAddress(developer: string): string {
     return developer;
 }
 
+// Helper function to extract serialized value from a register
+function getSerializedValue(register: any): string {
+    if (typeof register === 'string') {
+        return register;
+    }
+    if (register && typeof register.serializedValue === 'string') {
+        return register.serializedValue;
+    }
+    // Fallback for unexpected structures, might need adjustment
+    return '';
+}
+
 /**
  * Creator approves proposal using the isCreatorApproveProposal path
  * This requires creator signature and validates against proposal contract
@@ -449,7 +462,7 @@ export async function creatorApproveProposal(
                     console.warn("Complex R6 hex parsing needed:", dataHex);
                 }
             } else {
-                const hexDecoded = r6Data.match(/.{2}/g)?.map(byte => String.fromCharCode(parseInt(byte, 16))).join('') || '';
+                const hexDecoded = r6Data.match(/.{2}/g)?.map((byte: string) => String.fromCharCode(parseInt(byte, 16))).join('') || '';
                 if (hexDecoded.startsWith('[')) {
                     counters = JSON.parse(hexDecoded);
                 } else {
@@ -526,7 +539,7 @@ export async function creatorApproveProposal(
         console.log("Successfully decoded proposal bounty ID:", proposalBountyId);
     } catch (error) {
         console.error("Failed to decode proposal bounty ID:", error);
-        throw new Error(`Failed to decode proposal bounty ID: ${error.message}`);
+        throw new Error(`Failed to decode proposal bounty ID: ${(error as Error).message}`);
     }
     
     console.log("Extracted proposal data:", {
@@ -647,23 +660,25 @@ export async function creatorApproveProposal(
             });
         }
         
-        // Copy all registers unchanged
+        // Copy all registers, ensuring they are serialized strings
+        const registers = (bountyBox as any).additionalRegisters || {};
         updatedBountyBox.setAdditionalRegisters({
-            R4: bountyBox.R4,
-            R5: bountyBox.R5,
-            R6: bountyBox.R6,
-            R7: bountyBox.R7,
-            R8: bountyBox.R8,
-            R9: bountyBox.R9
+            R4: getSerializedValue(registers.R4),
+            R5: getSerializedValue(registers.R5),
+            R6: getSerializedValue(registers.R6),
+            R7: getSerializedValue(registers.R7),
+            R8: getSerializedValue(registers.R8),
+            R9: getSerializedValue(registers.R9),
         });
         
         outputs.push(updatedBountyBox);
     }
 
     // 2. Proposer reward box
+    const proposerAddress = hexToErgoAddress(proposerPubKeyHex);
     const proposerRewardBox = new OutputBuilder(
         proposerERG,
-        proposerPubKeyHex
+        proposerAddress
     );
     
     if (proposerPFT > 0n && pftToken && pftToken.tokenId) {

@@ -52,6 +52,7 @@
         boxId: string;
         rawContent: any;
         registers: Record<string, string>;
+        box: any;
     }> = [];
 
     let isCurrentUserJudge = false;
@@ -302,6 +303,7 @@
                                 boxId: proposal.boxId || "",
                                 rawContent: proposal.rawContent || {},
                                 registers: proposal.registers || {},
+                                box: proposal.box,
                             };
                         })
                         .sort(
@@ -463,53 +465,12 @@ async function approveProposal(proposalId: string) {
     console.log("Setting isSubmitting to true");
 
     try {
-        console.log("=== PROPOSAL BOX RECONSTRUCTION ===");
-        console.log("Original proposal rawContent:", proposal.rawContent);
-        console.log("Proposal registers:", proposal.registers);
-
-        // Simplified proposal box reconstruction
-        let proposalBox: any = null;
-
-        // Method 1: Use rawContent if it has register structure
-        if (proposal.rawContent && typeof proposal.rawContent === "object") {
-            if (proposal.rawContent.R4 || proposal.rawContent.R5 || proposal.rawContent.R6) {
-                console.log("Using existing register structure from rawContent");
-                proposalBox = proposal.rawContent;
-            } 
-            // Method 2: Check additionalRegisters
-            else if (proposal.rawContent.additionalRegisters) {
-                console.log("Using additionalRegisters structure");
-                proposalBox = {
-                    ...proposal.rawContent,
-                    R4: proposal.rawContent.additionalRegisters.R4?.renderedValue || 
-                        proposal.rawContent.additionalRegisters.R4,
-                    R5: proposal.rawContent.additionalRegisters.R5?.renderedValue || 
-                        proposal.rawContent.additionalRegisters.R5,
-                    R6: proposal.rawContent.additionalRegisters.R6?.renderedValue || 
-                        proposal.rawContent.additionalRegisters.R6,
-                };
-            }
+        const proposalBox = proposal.box;
+        if (!proposalBox) {
+            throw new Error("Proposal box data is missing from the proposal object.");
         }
         
-        // Method 3: Use registers as fallback
-        if (!proposalBox && proposal.registers && Object.keys(proposal.registers).length > 0) {
-            console.log("Using proposal.registers as fallback");
-            proposalBox = {
-                R4: proposal.registers.R4,
-                R5: proposal.registers.R5,
-                R6: proposal.registers.R6,
-                additionalRegisters: proposal.registers,
-            };
-        }
-
-        if (!proposalBox) {
-            throw new Error("Could not reconstruct proposal box structure");
-        }
-
-        console.log("Final proposalBox structure:", proposalBox);
-        console.log("ProposalBox R4:", proposalBox.R4);
-        console.log("ProposalBox R5:", proposalBox.R5);
-        console.log("ProposalBox R6:", proposalBox.R6);
+        console.log("Using proposal.box for approval:", proposalBox);
 
         console.log("=== CALLING creatorApproveProposal ===");
         console.log("Bounty version:", bounty.version);

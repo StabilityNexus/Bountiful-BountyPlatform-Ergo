@@ -13,6 +13,7 @@ export interface Proposal {
     bountyId?: string;
     rawContent: any;
     registers: Record<string, any>;
+    box?: any;
 }
 
 export function hexToErgoAddress(hexString: string): string {

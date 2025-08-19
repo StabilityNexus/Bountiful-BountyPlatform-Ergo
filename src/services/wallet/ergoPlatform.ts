@@ -5,7 +5,19 @@ import { derived, writable } from 'svelte/store';
 // Extend the Window interface to include ergoConnector
 declare global {
   interface Window {
-    ergoConnector?: any;
+    ergoConnector?: {
+      nautilus?: {
+        connect(): Promise<boolean>;
+        isConnected(): Promise<boolean>;
+      };
+    };
+    ergo?: {
+      get_change_address(): Promise<string>;
+      get_utxos(): Promise<any[]>;
+      get_current_height(): Promise<number>;
+      sign_tx(tx: any): Promise<any>;
+      submit_tx(tx: any): Promise<string>;
+    };
   }
 }
 
