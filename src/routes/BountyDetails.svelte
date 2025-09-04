@@ -116,8 +116,13 @@
 
     // Initialize data loading
     async function initializeBounty() {
-        if (bountyId && !bounty) {
-            // bounty = await platform.getBountyById(bountyId);
+        if (bountyId) {
+            const bounties = await platform.fetch();
+            const fetchedBounty = bounties.get(bountyId) || null;
+            if (fetchedBounty) {
+                bounty = fetchedBounty;
+                bounty_detail.set(bounty);
+            }
         }
 
         if (bounty) {

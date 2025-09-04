@@ -9,8 +9,8 @@ import {
 import { type contract_version } from '../contract';
 import { get_dev_contract_address, get_dev_fee } from '../dev/dev_contract';
 import { hexToErgoAddress } from '../../common/proposal'; // Import the utility
+import { SGroupElement, SColl, SByte, SSigmaProp } from '@fleet-sdk/serializer';
 
-// Extended interfaces to match contract structure
 export interface BountyBox extends Box<Amount> {
     tokens: { tokenId: string; amount: bigint }[];
     R4: string; // Int - block limit
@@ -22,10 +22,12 @@ export interface BountyBox extends Box<Amount> {
 }
 
 export interface ProposalBox extends Box<Amount> {
+    tokens: { tokenId: string; amount: bigint }[];
     R4: string; // GroupElement - proposerPubKey (hex encoded)
     R5: string; // Coll[Byte] - bountyId (hex encoded)
     R6: string; // Coll[Byte] - metadataJson (hex encoded)
     R7: string; // SigmaProp - bountyCreatorProp (hex encoded)
+    R8: string; // Int - status (0: Pending, 1: Approved, 2: Rejected, 3: Disputed)
 }
 
 declare const ergo: {
@@ -38,53 +40,17 @@ declare const ergo: {
 
 // Helper function to safely decode creator details from bounty box
 function decodeCreatorDetails(bountyBox: BountyBox): { address: string } {
-    console.log("Full bounty box for creator extraction:", bountyBox);
-    console.log("BountyBox registers:", {
-        R4: bountyBox.R4,
-        R5: bountyBox.R5,
-        R6: bountyBox.R6,
-        R7: bountyBox.R7,
-        R8: bountyBox.R8,
-        R9: bountyBox.R9
-    });
-    
-    // Try R8 first (as per interface)
-    if (bountyBox.R8) {
-        console.log("Trying to decode from R8:", bountyBox.R8);
-        const result = tryDecodeCreatorFromData(bountyBox.R8);
-        if (result) return result;
-    }
-    
-    // Try other registers in case creator is stored elsewhere
-    const registersToTry = ['R9', 'R7', 'R6', 'R5', 'R4'];
-    for (const reg of registersToTry) {
-        const data = (bountyBox as any)[reg];
-        if (data) {
-            console.log(`Trying to decode creator from ${reg}:`, data);
-            const result = tryDecodeCreatorFromData(data);
-            if (result) {
-                console.log(`Successfully decoded creator from ${reg}:`, result);
-                return result;
-            }
+    const registers = (bountyBox as any).additionalRegisters || {};
+    const r8Data = registers.R8 || bountyBox.R8;
+
+    if (r8Data) {
+        const result = tryDecodeCreatorFromData(r8Data);
+        if (result) {
+            return result;
         }
     }
     
-    // Try additionalRegisters if they exist
-    if ((bountyBox as any).additionalRegisters) {
-        console.log("Checking additionalRegisters:", (bountyBox as any).additionalRegisters);
-        for (const [key, value] of Object.entries((bountyBox as any).additionalRegisters)) {
-            if (value && typeof value === 'string') {
-                console.log(`Trying to decode creator from additionalRegisters.${key}:`, value);
-                const result = tryDecodeCreatorFromData(value);
-                if (result) {
-                    console.log(`Successfully decoded creator from additionalRegisters.${key}:`, result);
-                    return result;
-                }
-            }
-        }
-    }
-    
-    throw new Error("Creator details not found in any register of the bounty box");
+    throw new Error("Creator details not found in R8 of the bounty box");
 }
 
 function analyzeProposalBox(proposalBox: any): void {
@@ -637,42 +603,21 @@ export async function creatorApproveProposal(
     // Build outputs
     const outputs: OutputBuilder[] = [];
 
-    // 1. Updated bounty contract (if continuing) or skip if fully depleted
-    if (contractContinues) {
-        const updatedBountyBox = new OutputBuilder(
-            0n, // All ERG withdrawn
-            bountyBox.ergoTree
-        );
-        
-        // Keep APT token
-        if (aptToken && aptToken.tokenId && aptToken.amount) {
-            updatedBountyBox.addTokens({
-                tokenId: aptToken.tokenId,
-                amount: BigInt(aptToken.amount)
-            });
-        }
-        
-        // Keep remaining PFT for contributors
-        if (contributorsPFT > 0n && pftToken && pftToken.tokenId) {
-            updatedBountyBox.addTokens({
-                tokenId: pftToken.tokenId,
-                amount: contributorsPFT
-            });
-        }
-        
-        // Copy all registers, ensuring they are serialized strings
-        const registers = (bountyBox as any).additionalRegisters || {};
-        updatedBountyBox.setAdditionalRegisters({
-            R4: getSerializedValue(registers.R4),
-            R5: getSerializedValue(registers.R5),
-            R6: getSerializedValue(registers.R6),
-            R7: getSerializedValue(registers.R7),
-            R8: getSerializedValue(registers.R8),
-            R9: getSerializedValue(registers.R9),
-        });
-        
-        outputs.push(updatedBountyBox);
-    }
+    // 1. Updated proposal box with "Approved" status
+    const updatedProposalBox = new OutputBuilder(
+        BigInt(proposalBox.value),
+        proposalBox.ergoTree
+    ).addTokens(proposalBox.tokens || (proposalBox as any).assets || []);
+
+    const proposalRegisters = (proposalBox as any).additionalRegisters || {};
+    updatedProposalBox.setAdditionalRegisters({
+        R4: getSerializedValue(proposalRegisters.R4) || SGroupElement(new Uint8Array(33)).toHex(),
+        R5: getSerializedValue(proposalRegisters.R5) || SColl(SByte, new Uint8Array(32)).toHex(),
+        R6: getSerializedValue(proposalRegisters.R6) || SColl(SByte, new Uint8Array(0)).toHex(),
+        R7: getSerializedValue(proposalRegisters.R7) || SSigmaProp(SGroupElement(new Uint8Array(33))).toHex(),
+        R8: '0402', // Status 1 (Approved) as Int
+    });
+    outputs.push(updatedProposalBox);
 
     // 2. Proposer reward box
     const proposerAddress = hexToErgoAddress(proposerPubKeyHex);
@@ -698,10 +643,44 @@ export async function creatorApproveProposal(
         outputs.push(devFeeBox);
     }
 
+    // 4. Updated bounty contract (if continuing)
+    if (contractContinues) {
+        const updatedBountyBox = new OutputBuilder(
+            0n, // All ERG withdrawn
+            bountyBox.ergoTree
+        );
+        
+        if (aptToken && aptToken.tokenId && aptToken.amount) {
+            updatedBountyBox.addTokens({
+                tokenId: aptToken.tokenId,
+                amount: BigInt(aptToken.amount)
+            });
+        }
+        
+        if (contributorsPFT > 0n && pftToken && pftToken.tokenId) {
+            updatedBountyBox.addTokens({
+                tokenId: pftToken.tokenId,
+                amount: contributorsPFT
+            });
+        }
+        
+        const bountyRegisters = (bountyBox as any).additionalRegisters || {};
+        updatedBountyBox.setAdditionalRegisters({
+            R4: getSerializedValue(bountyRegisters.R4),
+            R5: getSerializedValue(bountyRegisters.R5),
+            R6: getSerializedValue(bountyRegisters.R6),
+            R7: getSerializedValue(bountyRegisters.R7),
+            R8: getSerializedValue(bountyRegisters.R8),
+            R9: getSerializedValue(bountyRegisters.R9),
+        });
+        
+        outputs.push(updatedBountyBox);
+    }
+
     // Build transaction with proposal as data input
     const transactionBuilder = new TransactionBuilder(await ergo.get_current_height())
-        .from([bountyBox, ...walletUtxos])
-        .withDataFrom([proposalBox]) // Proposal as data input for validation
+        .from([bountyBox, proposalBox, ...walletUtxos])
+        .withDataFrom([bountyBox])
         .sendChangeTo(changeAddress)
         .payFee(RECOMMENDED_MIN_FEE_VALUE);
 

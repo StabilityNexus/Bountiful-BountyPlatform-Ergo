@@ -24,6 +24,8 @@
     import { web_explorer_uri_addr } from "$lib/ergo/envs";
 
     import { creatorApproveProposal } from "$lib/ergo/actions/approve_proposal";
+    import { disputeProposal } from "$lib/ergo/actions/dispute_proposal";
+    import { rejectProposal } from "$lib/ergo/actions/reject_proposal";
 
     export let bounty: Bounty;
     export let deadline_passed: boolean = false;
@@ -291,6 +293,17 @@
 
                             developer = sanitizeDeveloperAddress(developer);
 
+                            const statusValue = proposal.box.additionalRegisters.R8?.renderedValue;
+                            let status = "pending";
+                            if (statusValue === "1") {
+                                status = "approved";
+                            } else if (statusValue === "2") {
+                                status = "rejected";
+                            } else if (statusValue === "3") {
+                                status = "disputed";
+                            }
+
+
                             return {
                                 id:
                                     proposal.id ||
@@ -298,7 +311,7 @@
                                 developer,
                                 summary: proposal.summary || "No summary",
                                 url: proposal.url || "",
-                                status: proposal.status || "pending",
+                                status: status,
                                 submittedAt: proposal.submittedAt || new Date(),
                                 boxId: proposal.boxId || "",
                                 rawContent: proposal.rawContent || {},
@@ -345,8 +358,16 @@
 
             console.log("Submitting proposal data:", submissionData);
 
+            let creatorAddress = bounty.constants?.creator;
+            if (!creatorAddress) {
+                // Fallback or error handling if creator address is not found
+                throw new Error("Bounty creator address not found.");
+            }
+
+
             const txId = await submit_proposal(
                 bounty.bounty_id,
+                creatorAddress,
                 "v1_0",
                 $address,
                 submissionData,
@@ -510,28 +531,62 @@ async function approveProposal(proposalId: string) {
         console.log("=== APPROVE PROPOSAL DEBUG END ===");
     }
 }
-    // async function rejectProposal(proposalId: string) {
-    //     if (!bounty || !isCurrentUserJudge) return;
 
-    //     const proposal = proposals.find(p => p.id === proposalId);
-    //     if (!proposal) return;
+async function handleReject(proposalId: string) {
+    console.log("=== REJECT PROPOSAL START ===");
+    const proposal = proposals.find((p) => p.id === proposalId);
+    if (!proposal || !$address) {
+        console.error("Reject proposal: missing proposal or address");
+        return;
+    }
 
-    //     isSubmitting = true;
-    //     errorMessage = null;
+    console.log("Rejecting proposal:", proposal);
+    console.log("Bounty box:", bounty.box);
 
-    //     try {
-    //         // Call the blockchain reject (off-chain or on-chain)
-    //         await chainRejectProposal(proposal.rawContent as any, "Judge rejected");
+    isSubmitting = true;
+    errorMessage = null;
+    try {
+        const txId = await rejectProposal(bounty.version, bounty.box as any, proposal.box, $address);
+        if (txId) {
+            transactionId = txId;
+            setTimeout(loadProposals, 5000);
+        }
+    } catch (e) {
+        console.error("Reject proposal error:", e);
+        errorMessage = (e as Error).message;
+    } finally {
+        isSubmitting = false;
+        console.log("=== REJECT PROPOSAL END ===");
+    }
+}
 
-    //         proposals = proposals.map(p =>
-    //             p.id === proposalId ? { ...p, status: "rejected" } : p
-    //         );
-    //     } catch (err) {
-    //         errorMessage = (err as any).message || "Failed to reject proposal";
-    //     } finally {
-    //         isSubmitting = false;
-    //     }
-    // }
+async function handleDispute(proposalId: string) {
+    console.log("=== DISPUTE PROPOSAL START ===");
+    const proposal = proposals.find((p) => p.id === proposalId);
+    if (!proposal || !$address) {
+        console.error("Dispute proposal: missing proposal or address");
+        return;
+    }
+
+    console.log("Disputing proposal:", proposal);
+    console.log("Bounty box:", bounty.box);
+
+    isSubmitting = true;
+    errorMessage = null;
+    try {
+        const txId = await disputeProposal(bounty.version, bounty.box as any, proposal.box, $address);
+        if (txId) {
+            transactionId = txId;
+            setTimeout(loadProposals, 5000);
+        }
+    } catch (e) {
+        console.error("Dispute proposal error:", e);
+        errorMessage = (e as Error).message;
+    } finally {
+        isSubmitting = false;
+        console.log("=== DISPUTE PROPOSAL END ===");
+    }
+}
 
     // Initialize proposals when component loads
     $: if (bounty) {
@@ -606,11 +661,7 @@ async function approveProposal(proposalId: string) {
                     <div class="card-header">
                         <h3 class="proposal-title">{proposal.summary}</h3>
                         <div class="status-badge status-{proposal.status}">
-                            {proposal.status === "approved"
-                                ? "Approved"
-                                : proposal.status === "rejected"
-                                  ? "Rejected"
-                                  : "Pending"}
+                            {proposal.status}
                         </div>
                     </div>
 
@@ -684,20 +735,25 @@ async function approveProposal(proposalId: string) {
                         {/if}
                     </div>
 
-                    {#if isCurrentUserJudge && proposal.status === "pending"}
-                        <div class="card-actions">
-                            <button
-                                class="action-btn approve"
-                                on:click={() => approveProposal(proposal.id)}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting
-                                    ? "Processing..."
-                                    : "Approve Proposal"}
+                    <div class="card-actions">
+                        {#if isCurrentUserJudge}
+                            {#if proposal.status === 'pending' || proposal.status === 'disputed'}
+                                <button class="action-btn approve" on:click={() => approveProposal(proposal.id)} disabled={isSubmitting}>
+                                    Approve
+                                </button>
+                                <button class="action-btn reject" on:click={() => handleReject(proposal.id)} disabled={isSubmitting}>
+                                    Reject
+                                </button>
+                            {/if}
+                        {/if}
+                        {#if ($address && ($address === proposal.developer || isCurrentUserJudge)) && (proposal.status === 'pending' || proposal.status === 'approved' || proposal.status === 'rejected')}
+                            <button class="action-btn dispute" on:click={() => handleDispute(proposal.id)} disabled={isSubmitting}>
+                                Dispute
                             </button>
-                            <!-- Note: Rejection would be off-chain or through a separate mechanism -->
-                        </div>
-                    {:else if proposal.status === "approved"}
+                        {/if}
+                    </div>
+
+                    {#if proposal.status === "approved"}
                         <div class="approval-notice">
                             ✅ Approved by bounty creator
                         </div>
@@ -932,6 +988,11 @@ async function approveProposal(proposalId: string) {
         color: #856404;
     }
 
+    .status-disputed {
+        background-color: #f5c6cb;
+        color: #721c24;
+    }
+
     .card-content {
         padding: 1.5rem;
     }
@@ -1044,6 +1105,15 @@ async function approveProposal(proposalId: string) {
 
     .action-btn.reject:hover {
         background-color: #c0392b;
+    }
+
+    .action-btn.dispute {
+        background-color: #f39c12;
+        color: white;
+    }
+
+    .action-btn.dispute:hover {
+        background-color: #e67e22;
     }
 
     .empty-state {
