@@ -8,7 +8,7 @@ import {
     SConstant,
     SInt
 } from '@fleet-sdk/core';
-import type { ProposalBox } from './approve_proposal'; // Re-use the interface
+import type { ProposalBox } from './approve_proposal'; 
 
 declare const ergo: {
     get_change_address(): Promise<string>;
@@ -66,7 +66,7 @@ export async function updateProposalStatus(
         R5: getSerializedValue(registers.R5),
         R6: getSerializedValue(registers.R6),
         R7: getSerializedValue(registers.R7),
-        R8: SConstant(SInt(newStatus)), // Update status
+        R8: SConstant(SInt(newStatus)), 
     });
 
     const transactionBuilder = new TransactionBuilder(currentHeight)

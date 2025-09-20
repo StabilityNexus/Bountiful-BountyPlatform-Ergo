@@ -5,6 +5,7 @@ import { sha256, hex, blake2b256 } from "@fleet-sdk/crypto";
 import { uint8ArrayToHex } from "./utils";
 import { network_id } from "./envs";
 import { get_dev_contract_hash } from "./dev/dev_contract";
+import { get_proposal_contract_hash } from "./proposal_contract";
 
 // Define contract version type locally or import from a central definition if preferred
 export type contract_version = "v1_0" | "v1_1";
@@ -20,7 +21,7 @@ export interface MintContractDetails {
     ergoTree: string;
 }
 
-function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string) {
+function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string, proposal_contract_hash: string) {
     return `
 {
 
@@ -131,6 +132,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
 // $dev_fee_contract_bytes_hash: Blake2b-256 base16 string hash of the dev fee contract proposition bytes.
 // $dev_fee: Percentage fee allocated to the developer (e.g., 5 for 5%).
 // $token_id: Unique string identifier for the bounty reward token.
+// $proposal_contract_hash: Blake2b-256 base16 string hash of the proposal contract proposition bytes.
 
 // ===== Context Variables ===== //
 // None
@@ -412,6 +414,28 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
     ))
   }
 
+  val isPayoutToApprovedProposal = {
+    val approvedProposals = CONTEXT.dataInputs.filter { (box: Box) =>
+      blake2b256(box.propositionBytes) == fromBase16("`+proposal_contract_hash+`") &&
+      box.R5[Coll[Byte]].get == selfId &&
+      box.R8[Int].get == 1
+    }
+
+    if (approvedProposals.size == 1) {
+      val proposalBox = approvedProposals(0)
+      val proposerPK = proposalBox.R4[GroupElement].get
+
+      val correctPayoutAddress = {
+        val propAndBox = (sigmaProp(proveDlog(proposerPK)), OUTPUTS(1))
+        isSigmaPropEqualToBoxProp(propAndBox)
+      }
+
+      correctPayoutAddress
+    } else {
+      false
+    }
+  }
+
 // Fixed version of isClaimBountyReward with proper output checks
 val isClaimBountyReward = {
 
@@ -472,127 +496,12 @@ val isClaimBountyReward = {
     allOf(Coll(
       constants,
       minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
-      isToBountyCreatorAddress,                   // Only to the bounty creator address (for now - later this will be to solution provider)
+      isPayoutToApprovedProposal,                   // Only to the bounty creator address (for now - later this will be to solution provider)
       correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
       correctBountyAmount                         // Ensures the correct solution provider amount.
     ))
   }
 }
-
-  // COMMENTED OUT - Creator Approve Proposal action
-  /*
-  val isCreatorApproveProposal = {
-    // Verify creator signature
-    val creatorSignature = bountyCreatorAddr
-
-    // Verify minimum contribution threshold is met
-    val thresholdMet = minimumContributionReached
-
-    // Find the approved proposal in data inputs
-    val proposalExists = CONTEXT.dataInputs.exists({ (dataInput: Box) =>
-      dataInput.R5[Coll[Byte]].isDefined && 
-      dataInput.R5[Coll[Byte]].get == selfId &&
-      dataInput.R4[GroupElement].isDefined
-    })
-
-    val approvedProposal = CONTEXT.dataInputs.filter({ (dataInput: Box) =>
-      dataInput.R5[Coll[Byte]].isDefined && 
-      dataInput.R5[Coll[Byte]].get == selfId &&
-      dataInput.R4[GroupElement].isDefined
-    })(0)
-
-    val proposerPK = approvedProposal.R4[GroupElement].get
-
-    // Calculate reward distribution
-    val minerFeeAmount = 1100000L
-    val devFee = `+dev_fee+`
-    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { 
-      selfValue - OUTPUTS(0).value 
-    } else { 
-      selfValue 
-    }
-    val devFeeAmount = extractedValue * devFee / 100
-    val proposerReward = extractedValue - devFeeAmount - minerFeeAmount
-
-    // Verify proposer receives correct ERG reward
-    val correctProposerERGReward = {
-      val proposerOutputs = OUTPUTS.filter({ (output: Box) =>
-        val propAndBox = (sigmaProp(proveDlog(proposerPK)), output)
-        isSigmaPropEqualToBoxProp(propAndBox)
-      })
-      proposerOutputs.size >= 1 && proposerOutputs.map({ (box: Box) => box.value }).fold(0L, { (a: Long, b: Long) => a + b }) >= proposerReward
-    }
-
-    // Verify dev fee payment
-    val correctDevFee = {
-      if (devFeeAmount > 0) {
-        val devOutput = OUTPUTS.exists({ (output: Box) =>
-          fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(output.propositionBytes) &&
-          output.value >= devFeeAmount
-        })
-        devOutput
-      } else {
-        true
-      }
-    }
-
-    // Handle PFT token distribution
-    val correctPFTDistribution = {
-      if (SELF.tokens.size > 1) {
-        val pftTokenId = SELF.tokens(1)._1
-        val totalPFT = SELF.tokens(1)._2
-        
-        // Calculate PFT allocation
-        val contributorsPFT = selfContributedCounter
-        val remainingPFT = totalPFT - contributorsPFT
-        
-        if (remainingPFT > 0) {
-          // Proposer should receive remaining PFT tokens
-          val proposerReceivesPFT = OUTPUTS.exists({ (output: Box) =>
-            val propAndBox = (sigmaProp(proveDlog(proposerPK)), output)
-            isSigmaPropEqualToBoxProp(propAndBox) &&
-            output.tokens.exists({ (token: (Coll[Byte], Long)) =>
-              val tokenId = token._1
-              val amount = token._2
-              tokenId == pftTokenId && amount >= remainingPFT
-            })
-          })
-          proposerReceivesPFT
-        } else {
-          true
-        }
-      } else {
-        true
-      }
-    }
-
-    // Contract replication or termination logic
-    val endOrReplicate = {
-      val allFundsWithdrawn = extractedValue == selfValue
-      val allTokensDistributed = SELF.tokens.size == 1 || SELF.tokens(1)._2 <= selfContributedCounter
-      
-      if (allFundsWithdrawn && allTokensDistributed) {
-        true // Contract can be terminated
-      } else {
-        // Contract must be replicated for remaining operations
-        isSelfReplication && 
-        APTokenRemainsConstant && 
-        contributedCounterRemainsConstant && 
-        refundCounterRemainsConstant && 
-        auxiliarExchangeCounterRemainsConstant
-      }
-    }
-
-    bountyCreatorAddr && allOf(Coll(
-      thresholdMet,
-      proposalExists,
-      correctProposerERGReward,
-      correctDevFee,
-      correctPFTDistribution,
-      endOrReplicate
-    ))
-  }
-  */
 
   // > Bounty creators may withdraw unused reward tokens from the contract at any time.
   val isWithdrawUnusedRewardTokens = {
@@ -736,9 +645,9 @@ val isClaimBountyReward = {
   `
 }
 
-function generate_contract_v1_1(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string) {
+function generate_contract_v1_1(owner_addr: string, dev_fee_contract_bytes_hash: string, dev_fee: number, token_id: string, proposal_contract_hash: string) {
     // Placeholder for v1.1 - implement as needed
-    return generate_contract_v1_0(owner_addr, dev_fee_contract_bytes_hash, dev_fee, token_id);
+    return generate_contract_v1_0(owner_addr, dev_fee_contract_bytes_hash, dev_fee, token_id, proposal_contract_hash);
 }
 
 function handle_contract_generator(version: contract_version) {
@@ -759,7 +668,8 @@ function handle_contract_generator(version: contract_version) {
 export function get_address(constants: ConstantContent, version: contract_version) {
 
     // In case that dev_hash is undefined, we try to use the current contract hash. But the tx will fail if the hash is different.
-    let contract = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id );
+    const proposal_contract_hash = get_proposal_contract_hash("v1_0");
+    let contract = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id, proposal_contract_hash);
     let ergoTree = compile(contract, {version: 1, network: network_id})
 
     let network = (network_id == "mainnet") ? Network.Mainnet : Network.Testnet;
@@ -771,7 +681,8 @@ export function get_bounty_contract_details(constants: ConstantContent, version:
     console.log("ConstantContent structure received by get_bounty_contract_details:", JSON.stringify(constants, null, 2));
 
     // In case that dev_hash is undefined, we try to use the current contract hash. But the tx will fail if the hash is different.
-    let contract_script = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id);
+    const proposal_contract_hash = get_proposal_contract_hash("v1_0");
+    let contract_script = handle_contract_generator(version)(constants.creator, constants.dev_hash ?? get_dev_contract_hash(), constants.dev_fee, constants.token_id, proposal_contract_hash);
     // Ensure compile option version: 1 is used for the main bounty contract script
     let ergoTree = compile(contract_script, {version: 1, network: network_id});
 
@@ -786,8 +697,9 @@ export function get_template_hash(version: contract_version): string {
         const random_testnet_addr = "3WzH5yEJongYHmBJnoMs3zeK3t3fouMi3pigKdEURWcD61pU6Eve";
         const random_addr = network_id === "mainnet" ? random_mainnet_addr : random_testnet_addr;
         const random_dev_contract = uint8ArrayToHex(blake2b256("9a3d2f6b"));
+        const random_proposal_contract = uint8ArrayToHex(blake2b256("9a3d2f6c"));
 
-        const contract = handle_contract_generator(version)(random_addr, random_dev_contract, 5, "");
+        const contract = handle_contract_generator(version)(random_addr, random_dev_contract, 5, "", random_proposal_contract);
         const ergoTree = compile(contract, {
             version: 1, 
             network: network_id
@@ -803,11 +715,13 @@ export function get_template_hash(version: contract_version): string {
 
 function get_contract_hash(constants: ConstantContent, version: contract_version): string {
     try {
+        const proposal_contract_hash = get_proposal_contract_hash("v1_0");
         const contract = handle_contract_generator(version)(
             constants.creator, 
             constants.dev_hash ?? get_dev_contract_hash(), 
             constants.dev_fee, 
             constants.token_id,
+            proposal_contract_hash
         );
         
         const ergoTree = compile(contract, {
