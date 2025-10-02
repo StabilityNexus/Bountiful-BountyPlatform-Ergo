@@ -1,9 +1,7 @@
 <script lang="ts">
-    import { Button } from "$lib/components/ui/button";
     import { judge_detail } from "$lib/common/store";
     import { get } from "svelte/store";
     import {
-        total_burned_string,
         type ReputationProof,
     } from "$lib/ergo/reputation/objects";
     import { onDestroy } from "svelte";
@@ -13,11 +11,12 @@
         faGithub,
         faLinkedin,
     } from "@fortawesome/free-brands-svg-icons";
+    import { truncateAddress } from "$lib/common/utils";
 
-    let proof: ReputationProof | null | undefined = get(judge_detail);
+    let judgeInfo = get(judge_detail);
 
     const unsubscribeDetail = judge_detail.subscribe((value) => {
-        proof = value ?? undefined;
+        judgeInfo = value;
     });
 
     onDestroy(() => {
@@ -27,19 +26,9 @@
     function handleViewDetails() {
         judge_detail.set(null);
     }
-    // const address =
-    //   proof?.data && (proof.data as any).ownerAddress
-    //     ? (proof.data as any).ownerAddress
-    //     : proof?.current_boxes?.[0]?.ownerAddress ?? null;
 
-    $: displayProof = proof;
-
-// Debug: Log the RPBox structure
-$: if (displayProof?.current_boxes?.[0]) {
-    console.log('First RPBox:', displayProof.current_boxes[0]);
-    console.log('All RPBoxes:', displayProof.current_boxes);
-    console.log('DisplayProof full object:', displayProof);
-}
+    $: displayProof = judgeInfo?.proof;
+    $: judgeAddress = judgeInfo?.address ?? 'N/A';
 
     // Extract social media links from the main proof box content
     $: judgeSocials = (() => {
@@ -61,13 +50,9 @@ $: if (displayProof?.current_boxes?.[0]) {
         }
         return null;
     })();
-
-    $: judgeAddress = displayProof?.current_boxes?.[0]?.box 
-    ? (displayProof.current_boxes[0].box as any).address 
-    : 'N/A';
 </script>
 
-{#if displayProof}
+{#if displayProof && judgeInfo}
     <div class="judge-header">
         <button class="back-button" on:click={handleViewDetails}>
             ← Back to Judge List
@@ -93,12 +78,12 @@ $: if (displayProof?.current_boxes?.[0]) {
                                 >{displayProof.token_id}</span
                             >
                         </li>
-                        <!-- <li>
+                        <li>
                             <strong>Judge Address:</strong>
                             <span class="font-mono text-xs judge-address"
-                                >{judgeAddress}</span
+                                >{truncateAddress(judgeAddress)}</span
                             >
-                        </li> -->
+                        </li>
                         <li>
                             <strong>Owner Script:</strong>
                             <span class="font-mono text-xs"

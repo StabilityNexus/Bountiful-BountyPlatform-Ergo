@@ -20,4 +20,4 @@ export const proposal_detail = writable<Proposal[]>([]);
 // Stores for the reputation system
 export const types = writable<{ data: Map<string, TypeNFT>, last_fetch: number }>({ data: new Map(), last_fetch: 0 });
 export const judges = writable<{ data: Map<string, ReputationProof>, last_fetch: number }>({ data: new Map(), last_fetch: 0 });
-export const judge_detail = writable<ReputationProof | null>(null);
+export const judge_detail = writable<{proof: ReputationProof, address: string} | null>(null);

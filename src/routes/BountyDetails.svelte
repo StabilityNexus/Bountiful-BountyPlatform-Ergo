@@ -45,6 +45,7 @@
     import { onMount } from "svelte";
     import { judge_detail} from "$lib/common/store";
     import { fetchJudgeProofByAddress } from "$lib/ergo/reputation/fetch";
+    import { truncateAddress } from "$lib/common/utils";
 
     async function viewJudge(judgeAddress: string) {
         // const ergo = get(platform)?.ergo;
@@ -54,7 +55,7 @@
         }
         const proof = await fetchJudgeProofByAddress(judgeAddress, ergo);
         if (proof) {
-            judge_detail.set(proof);
+            judge_detail.set({ proof, address: judgeAddress });
         } else {
             alert("Could not find a judge profile for this address.");
         }
@@ -121,13 +122,6 @@
     let maxWithdrawErgAmount = 0; // Maximum amount bounty owner can withdraw
 
     let isCurrentUserJudge = false;
-
-    function truncateAddress(address: string): string {
-        if (!address) return "";
-        return address.length > 10
-            ? `${address.slice(0, 6)}...${address.slice(-4)}`
-            : address;
-    }
 
     $: if (bounty) {
         submit_info =
