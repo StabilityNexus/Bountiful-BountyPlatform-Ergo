@@ -9,7 +9,7 @@ import {
 import { type contract_version } from '../contract';
 import { get_dev_contract_address, get_dev_fee } from '../dev/dev_contract';
 import { hexToErgoAddress } from '../../common/proposal'; // Import the utility
-import { SGroupElement, SColl, SByte, SSigmaProp } from '@fleet-sdk/serializer';
+import { SGroupElement, SColl, SByte, SSigmaProp, SInt } from '@fleet-sdk/serializer';
 
 
 export interface BountyBox extends Box<Amount> {
@@ -42,854 +42,95 @@ declare const ergo: {
 } | undefined;
 
 
-// Enhanced helper function to extract serialized value from a register
-function getSerializedValue(register: any): string {
-    console.log("getSerializedValue input:", typeof register, register);
-
-    if (typeof register === 'string') {
-        return register;
+function safeRegisterToHex(registerValue: any): string {
+    if (registerValue && typeof registerValue.serializedValue === 'string') {
+        return registerValue.serializedValue;
     }
+    if (typeof registerValue === 'string') {
+        return registerValue;
+    }
+    // Add more checks if other formats are possible
+    throw new Error(`Cannot convert register to hex: ${JSON.stringify(registerValue)}`);
+}
 
+function createFleetSdkBox(proposalBox: any): Box<Amount> {
+    const registers = proposalBox.additionalRegisters;
+    const convertedRegisters: { [key: string]: string } = {};
+
+    Object.keys(registers).forEach(key => {
+        convertedRegisters[key] = safeRegisterToHex(registers[key]);
+    });
+
+    return {
+        boxId: proposalBox.boxId,
+        transactionId: proposalBox.transactionId,
+        index: proposalBox.index,
+        ergoTree: proposalBox.ergoTree,
+        creationHeight: proposalBox.creationHeight,
+        value: proposalBox.value.toString(),
+        assets: proposalBox.assets || [],
+        additionalRegisters: convertedRegisters
+    };
+}
+
+function getSerializedValue(register: any): string {
     if (register && typeof register.serializedValue === 'string') {
         return register.serializedValue;
     }
-
-    if (register && typeof register.renderedValue === 'string') {
-        return register.renderedValue;
+    if (typeof register === 'string') {
+        return register;
     }
-
-    // Handle object with hex property
-    if (register && typeof register.hex === 'string') {
-        return register.hex;
-    }
-
-    // Handle direct hex conversion if it's a serializer object
-    if (register && typeof register.toHex === 'function') {
-        try {
-            const hexResult = register.toHex();
-            if (typeof hexResult === 'string') {
-                return hexResult;
-            }
-        } catch (e) {
-            console.warn("Failed to call toHex() on register:", e);
-        }
-    }
-
-    // Fallback for unexpected structures
-    console.warn("Unexpected register structure, returning empty string:", register);
-    return '';
+    throw new Error(`Invalid register format: ${JSON.stringify(register)}`);
 }
-
-
-// Helper function to safely extract ergoTree as hex string
-function getErgoTreeHex(box: any): string {
-    console.log("getErgoTreeHex input:", typeof box.ergoTree, box.ergoTree);
-
-    if (typeof box.ergoTree === 'string') {
-        return box.ergoTree;
-    }
-
-    if (box.ergoTree && typeof box.ergoTree.toHex === 'function') {
-        try {
-            const hexResult = box.ergoTree.toHex();
-            if (typeof hexResult === 'string') {
-                return hexResult;
-            }
-        } catch (e) {
-            console.warn("Failed to call toHex() on ergoTree:", e);
-        }
-    }
-
-    if (box.ergoTree && typeof box.ergoTree.hex === 'string') {
-        return box.ergoTree.hex;
-    }
-
-    throw new Error(`Invalid ergoTree format: ${typeof box.ergoTree}, ${JSON.stringify(box.ergoTree).substring(0, 100)}`);
-}
-
-
-// Enhanced address validation
-function validateAddress(address: any, context: string): string {
-    console.log(`Validating address for ${context}:`, typeof address, address);
-
-    if (typeof address === 'string' && address.length > 40) {
-        return address;
-    }
-
-    if (address && typeof address.toString === 'function') {
-        const addressStr = address.toString();
-        if (typeof addressStr === 'string' && addressStr.length > 40) {
-            return addressStr;
-        }
-    }
-
-    throw new Error(`Invalid address format for ${context}: ${typeof address}, ${JSON.stringify(address).substring(0, 100)}`);
-}
-
-
-// Helper function to safely decode creator details from bounty box
-function decodeCreatorDetails(bountyBox: BountyBox): { address: string } {
-    const registers = (bountyBox as any).additionalRegisters || {};
-    const r8Data = registers.R8 || bountyBox.R8;
-
-    if (r8Data) {
-        const result = tryDecodeCreatorFromData(r8Data);
-        if (result) {
-            return result;
-        }
-    }
-
-    throw new Error("Creator details not found in R8 of the bounty box");
-}
-
-
-function analyzeProposalBox(proposalBox: any): void {
-    console.log("=== PROPOSAL BOX ANALYSIS ===");
-    console.log("Box type:", typeof proposalBox);
-    console.log("Box keys:", Object.keys(proposalBox));
-
-    // Check main properties
-    if (proposalBox.additionalRegisters) {
-        console.log("additionalRegisters found:", Object.keys(proposalBox.additionalRegisters));
-        Object.entries(proposalBox.additionalRegisters).forEach(([key, value]) => {
-            console.log(`  ${key}:`, typeof value, value);
-        });
-    }
-
-    if (proposalBox.registers) {
-        console.log("registers found:", Object.keys(proposalBox.registers));
-        Object.entries(proposalBox.registers).forEach(([key, value]) => {
-            console.log(`  ${key}:`, typeof value, value);
-        });
-    }
-
-    // Check direct R4-R9 properties
-    ['R4', 'R5', 'R6', 'R7', 'R8', 'R9'].forEach(reg => {
-        if (proposalBox[reg]) {
-            console.log(`Direct ${reg}:`, typeof proposalBox[reg], proposalBox[reg]);
-        }
-    });
-
-    console.log("=== END ANALYSIS ===");
-}
-
-
-function decodeProposalBountyId(proposalBox: ProposalBox | any): string {
-    console.log("=== PROPOSAL BOX ANALYSIS ===");
-    console.log("Box type:", typeof proposalBox);
-    console.log("Box constructor:", proposalBox.constructor?.name);
-    console.log("Box keys (first 10):", Object.keys(proposalBox).slice(0, 10), "... (truncated)");
-
-    // Check if proposal box has additionalRegisters structure
-    let r5Data: any = null;
-
-    // FIRST: Check if it's the correct object structure with direct R5 access
-    if (proposalBox.R5 && typeof proposalBox.R5 === 'object') {
-        console.log("Found direct R5 object property");
-        r5Data = proposalBox.R5;
-        console.log("Direct R5:", r5Data);
-    }
-
-    // SECOND: Try additionalRegisters structure  
-    else if ((proposalBox as any).additionalRegisters?.R5) {
-        console.log("Found additionalRegisters, checking R5...");
-        r5Data = (proposalBox as any).additionalRegisters.R5;
-        console.log("additionalRegisters.R5:", r5Data);
-    }
-
-    // THIRD: Check if registers are stored differently
-    else if ((proposalBox as any).registers?.R5) {
-        console.log("Checking registers object");
-        r5Data = (proposalBox as any).registers.R5;
-    }
-
-    // FOURTH: Check if the box is array-like but has numeric string keys
-    else if (typeof proposalBox === 'object' && Object.keys(proposalBox).every(k => !isNaN(Number(k)))) {
-        console.log("Detected array-like object, trying to reconstruct registers...");
-
-        console.log("Array-like object sample:", Object.fromEntries(
-            Object.entries(proposalBox).slice(0, 20)
-        ));
-
-        // Cannot easily recover from this format - need to prevent the conversion
-        throw new Error(
-            "Proposal box appears to have been converted to array-like format. " +
-            "Original register structure lost. Check how proposalBox is being passed to this function."
-        );
-    }
-
-    // FIFTH: Try direct string property access (legacy format)
-    else if (typeof proposalBox.R5 === 'string') {
-        console.log("Found direct R5 string property");
-        r5Data = proposalBox.R5;
-    }
-
-    console.log("Final R5 data found:", r5Data);
-    console.log("=== END ANALYSIS ===");
-
-    if (!r5Data) {
-        // Get available keys for debugging
-        const availableKeys = Object.keys(proposalBox);
-        const registerKeys = (proposalBox as any).additionalRegisters ?
-            Object.keys((proposalBox as any).additionalRegisters) : [];
-
-        throw new Error(
-            `R5 register not found in proposal box. ` +
-            `Available box keys: ${availableKeys.slice(0, 5).join(', ')}... ` +
-            `Available register keys: ${registerKeys.join(', ')}`
-        );
-    }
-
-    // Handle serializedValue format
-    if (typeof r5Data === 'object' && r5Data.serializedValue) {
-        console.log("Processing serializedValue:", r5Data.serializedValue);
-        const serialized = r5Data.serializedValue;
-
-        if (serialized.startsWith('0e')) {
-            // Extract length (next 2 chars after 0e)
-            const lengthHex = serialized.substring(2, 4);
-            const length = parseInt(lengthHex, 16);
-            console.log("Decoded length:", length, "bytes");
-
-            // Extract the actual hex data
-            const dataHex = serialized.substring(4, 4 + (length * 2));
-            console.log("Extracted hex data:", dataHex);
-
-            // Convert hex to string (bounty ID was stored as string bytes)
-            try {
-                const bountyId = dataHex.match(/.{2}/g)?.map((byte: string) =>
-                    String.fromCharCode(parseInt(byte, 16))
-                ).join('') || '';
-
-                console.log("Decoded bounty ID:", bountyId);
-
-                // Validate it looks like a token ID (64 hex characters)
-                if (bountyId.length === 64 && /^[0-9a-fA-F]+$/i.test(bountyId)) {
-                    return bountyId.toLowerCase();
-                } else {
-                    console.warn("Decoded bounty ID doesn't look like token ID:", bountyId);
-                    // Return the hex data itself as fallback
-                    return dataHex.toLowerCase();
-                }
-            } catch (e) {
-                console.error("Failed to decode hex to string:", e);
-                // Return raw hex data
-                return dataHex.toLowerCase();
-            }
-        }
-    }
-
-    // Handle renderedValue format
-    if (typeof r5Data === 'object' && r5Data.renderedValue) {
-        console.log("Using renderedValue:", r5Data.renderedValue);
-        const rendered = r5Data.renderedValue;
-
-        // If rendered value is already the bounty ID
-        if (typeof rendered === 'string') {
-            if (rendered.length === 64 && /^[0-9a-fA-F]+$/i.test(rendered)) {
-                return rendered.toLowerCase();
-            } else {
-                // Try hex decoding if it's hex-encoded string
-                try {
-                    const decoded = rendered.match(/.{2}/g)?.map(byte =>
-                        String.fromCharCode(parseInt(byte, 16))
-                    ).join('') || '';
-
-                    if (decoded.length === 64 && /^[0-9a-fA-F]+$/i.test(decoded)) {
-                        return decoded.toLowerCase();
-                    }
-                } catch (e) {
-                    console.warn("Failed to decode rendered value as hex:", e);
-                }
-
-                // Return as-is if no other decoding works
-                return rendered;
-            }
-        }
-    }
-
-    // Handle direct string value
-    if (typeof r5Data === 'string') {
-        console.log("Processing direct string R5:", r5Data);
-
-        // Check if it's already a token ID
-        if (r5Data.length === 64 && /^[0-9a-fA-F]+$/i.test(r5Data)) {
-            return r5Data.toLowerCase();
-        }
-
-        // Check if it's hex-encoded with prefix (like the serializedValue case)
-        if (r5Data.startsWith('0e') && r5Data.length > 4) {
-            const lengthHex = r5Data.substring(2, 4);
-            const length = parseInt(lengthHex, 16);
-            const dataHex = r5Data.substring(4, 4 + (length * 2));
-
-            try {
-                const decoded = dataHex.match(/.{2}/g)?.map(byte =>
-                    String.fromCharCode(parseInt(byte, 16))
-                ).join('') || '';
-
-                if (decoded.length === 64 && /^[0-9a-fA-F]+$/i.test(decoded)) {
-                    return decoded.toLowerCase();
-                }
-
-                // Return hex data as fallback
-                return dataHex.toLowerCase();
-            } catch (e) {
-                console.error("Failed to decode string hex:", e);
-                return r5Data;
-            }
-        }
-
-        // Return as-is
-        return r5Data;
-    }
-
-    throw new Error(`Could not decode bounty ID from R5 data: ${JSON.stringify(r5Data)}`);
-}
-
-
-// Helper function to try decoding creator data from a string
-function tryDecodeCreatorFromData(data: string): { address: string } | null {
-    if (!data) return null;
-
-    try {
-        // Handle hex-encoded data (starts with length prefix like 0e9b06)
-        if (data.length > 4 && /^[0-9a-fA-F]+$/.test(data)) {
-            console.log("Processing hex data:", data);
-
-            // Skip the length prefix (first 2-4 chars) and decode the rest
-            let hexContent = data;
-
-            // Common prefixes to skip: 0e (variable length), followed by length bytes
-            if (data.startsWith('0e')) {
-                // Variable length encoding: 0e + length + data
-                // For 0e9b06, skip first 6 chars (0e9b06)
-                hexContent = data.substring(6);
-            } else if (data.startsWith('04') || data.startsWith('05') || data.startsWith('08')) {
-                // Fixed length encoding: skip first 2 chars
-                hexContent = data.substring(2);
-            }
-
-            console.log("Hex content after prefix removal:", hexContent);
-
-            // Convert hex to string
-            const hexDecoded = hexContent.match(/.{2}/g)?.map(byte => String.fromCharCode(parseInt(byte, 16))).join('') || '';
-            console.log("Decoded hex string:", hexDecoded);
-
-            if (hexDecoded) {
-                // Try parsing as JSON
-                if (hexDecoded.startsWith('{')) {
-                    const parsed = JSON.parse(hexDecoded);
-                    console.log("Parsed JSON from hex:", parsed);
-                    if (parsed.creator) {
-                        return { address: parsed.creator };
-                    }
-                    if (parsed.address) {
-                        return { address: parsed.address };
-                    }
-                }
-
-                // Check if it's directly an Ergo address
-                if (hexDecoded.startsWith('9') && hexDecoded.length > 40) {
-                    return { address: hexDecoded };
-                }
-            }
-        }
-
-        // First we try direct JSON parsing (if it's already a JSON string)
-        if (data.startsWith('{') || data.startsWith('"')) {
-            const parsed = JSON.parse(data);
-            if (parsed.address) {
-                return { address: parsed.address };
-            }
-            if (parsed.creator) {
-                return { address: parsed.creator };
-            }
-        }
-
-        // Try base64 decode
-        try {
-            const decoded = atob(data);
-            if (decoded.startsWith('{')) {
-                const parsed = JSON.parse(decoded);
-                if (parsed.address) {
-                    return { address: parsed.address };
-                }
-                if (parsed.creator) {
-                    return { address: parsed.creator };
-                }
-            } else if (decoded.startsWith('9') && decoded.length > 40) {
-                return { address: decoded };
-            }
-        } catch (base64Error) {
-            // Base64 failed, continue to other methods
-        }
-
-        // Check if it looks like an Ergo address directly
-        if (data.startsWith('9') && data.length > 40) {
-            return { address: data };
-        }
-
-        // Try to extract address from binary data using existing utilities
-        const sanitized = sanitizeDeveloperAddress(data);
-        if (sanitized && sanitized !== "Unknown" && sanitized !== "Address parsing error" && sanitized.startsWith('9')) {
-            return { address: sanitized };
-        }
-
-    } catch (error) {
-        console.warn("Failed to decode creator from data:", error, "Data:", data.substring(0, 100) + "...");
-    }
-
-    return null;
-}
-
-
-function sanitizeDeveloperAddress(developer: string): string {
-    if (!developer || developer === "Unknown") return "Unknown";
-
-    // Check if it's already a valid Ergo address
-    if (developer.startsWith("9") && developer.length > 40) {
-        return developer;
-    }
-
-    // Check for specific error messages from our conversion function
-    if (
-        developer.includes("Invalid key length") ||
-        developer.includes("Invalid hex format") ||
-        developer.includes("Conversion failed") ||
-        developer.includes("Address conversion failed") ||
-        developer.includes("Address extraction failed")
-    ) {
-        return "Address parsing error";
-    }
-
-    // If it contains non-printable characters, it's likely binary data
-    if (/[^\x20-\x7E]/.test(developer)) {
-        return "Address parsing error";
-    }
-
-    return developer;
-}
-
 
 /**
- * Creator approves proposal using the isCreatorApproveProposal path
- * This requires creator signature and validates against proposal contract
+ * Creator approves a proposal by changing its status to 1.
+ * This is the first step in the two-step payout process.
  */
 export async function creatorApproveProposal(
-    version: contract_version,
-    bountyBox: BountyBox,
     proposalBox: ProposalBox,
     creatorAddress: string
 ): Promise<string | null> {
     if (!ergo) throw new Error("Ergo object is not available");
 
-    console.log("=== DEBUGGING TRANSACTION BUILDING ===");
-    console.log("BountyBox ergoTree:", typeof bountyBox.ergoTree, bountyBox.ergoTree);
-    console.log("ProposalBox ergoTree:", typeof proposalBox.ergoTree, proposalBox.ergoTree);
-
-    // Validate that current user is the bounty creator
-    const creatorDetails = decodeCreatorDetails(bountyBox);
-    if (creatorDetails.address !== creatorAddress) {
-        throw new Error("Only bounty creator can approve proposals");
-    }
-
-    // Validate minimum contribution threshold (existing logic)
-    let counters: number[];
-    try {
-        const r6Data = (bountyBox as any).additionalRegisters?.R6 || bountyBox.R6 || "[0,0,0]";
-        console.log("Raw R6 data:", r6Data);
-
-        if (r6Data.startsWith('[')) {
-            counters = JSON.parse(r6Data);
-        } else if (/^[0-9a-fA-F]+$/.test(r6Data)) {
-            console.log("Decoding hex R6 data:", r6Data);
-
-            if (r6Data.startsWith('1103')) {
-                const dataHex = r6Data.substring(4);
-                if (dataHex === '000000') {
-                    counters = [0, 0, 0];
-                } else {
-                    counters = [0, 0, 0]; // Default fallback
-                    console.warn("Complex R6 hex parsing needed:", dataHex);
-                }
-            } else {
-                const hexDecoded = r6Data.match(/.{2}/g)?.map((byte: string) => String.fromCharCode(parseInt(byte, 16))).join('') || '';
-                if (hexDecoded.startsWith('[')) {
-                    counters = JSON.parse(hexDecoded);
-                } else {
-                    counters = [0, 0, 0];
-                }
-            }
-        } else {
-            counters = JSON.parse(r6Data);
-        }
-    } catch (e) {
-        console.error("Failed to parse R6 counters:", e, "Raw data:", (bountyBox as any).additionalRegisters?.R6 || bountyBox.R6);
-        counters = [0, 0, 0];
-    }
-
-    console.log("Parsed counters:", counters);
-    const contributed = BigInt(counters[0] || 0);
-
-    // Get minimum contribution from R5 
-    let minimumContribution: bigint;
-    try {
-        const r5Data = (bountyBox as any).additionalRegisters?.R5 || bountyBox.R5 || "0";
-        console.log("Raw R5 data:", r5Data);
-
-        if (/^[0-9a-fA-F]+$/.test(r5Data) && r5Data !== "0") {
-            if (r5Data.startsWith('05')) {
-                const valueHex = r5Data.substring(2);
-                minimumContribution = valueHex ? BigInt(parseInt(valueHex, 16)) : BigInt(0);
-            } else {
-                minimumContribution = BigInt(parseInt(r5Data, 16));
-            }
-        } else {
-            minimumContribution = BigInt(r5Data);
-        }
-    } catch (e) {
-        console.error("Failed to parse R5 minimum contribution:", e);
-        minimumContribution = BigInt(0);
-    }
-
-    console.log("Minimum contribution:", minimumContribution, "Contributed:", contributed);
-
-    if (contributed < minimumContribution) {
-        throw new Error("Minimum contribution threshold not reached");
-    }
-
-    // Extract proposal data using fixed function
-    console.log("Full proposal box:", proposalBox);
-    console.log("Proposal additionalRegisters:", (proposalBox as any).additionalRegisters);
-
-    let proposerPubKeyHex: string;
-    let proposalBountyId: string;
-
-    // R4 - proposerPubKey (hex encoded)
-    const r4Data = (proposalBox as any).additionalRegisters?.R4 || proposalBox.R4;
-    console.log("Proposal R4 (proposerPubKey):", r4Data);
-
-    if (r4Data && /^[0-9a-fA-F]+$/.test(r4Data)) {
-        if (r4Data.startsWith('07')) {
-            proposerPubKeyHex = r4Data.substring(2);
-        } else {
-            proposerPubKeyHex = r4Data;
-        }
-    } else if (typeof r4Data === 'object' && r4Data.serializedValue) {
-        const serialized = r4Data.serializedValue;
-        proposerPubKeyHex = serialized.startsWith('07') ? serialized.substring(2) : serialized;
-    } else if (typeof r4Data === 'object' && r4Data.renderedValue) {
-        proposerPubKeyHex = r4Data.renderedValue;
-    } else {
-        proposerPubKeyHex = r4Data || '';
-    }
-
-    // R5 - bountyId using the fixed decoder
-    try {
-        proposalBountyId = decodeProposalBountyId(proposalBox);
-        console.log("Successfully decoded proposal bounty ID:", proposalBountyId);
-    } catch (error) {
-        console.error("Failed to decode proposal bounty ID:", error);
-        throw new Error(`Failed to decode proposal bounty ID: ${(error as Error).message}`);
-    }
-
-    console.log("Extracted proposal data:", {
-        proposerPubKeyHex,
-        proposalBountyId,
-        proposalBountyIdLength: proposalBountyId.length
-    });
-
-    // Validate bounty linkage
-    let bountyTokens = bountyBox.tokens || [];
-    if (!bountyTokens || bountyTokens.length === 0) {
-        bountyTokens = (bountyBox as any).assets || [];
-    }
-
-    console.log("Bounty tokens found:", bountyTokens);
-
-    if (!bountyTokens || bountyTokens.length === 0) {
-        throw new Error("No tokens found in bounty box");
-    }
-
-    const aptToken = bountyTokens[0];
-    if (!aptToken || !aptToken.tokenId) {
-        throw new Error("Invalid APT token in bounty box");
-    }
-
-    // Compare token IDs (case-insensitive)
-    const normalizedProposalId = proposalBountyId.toLowerCase();
-    const normalizedBountyId = aptToken.tokenId.toLowerCase();
-
-    if (normalizedProposalId !== normalizedBountyId) {
-        console.log("Token ID mismatch details:", {
-            proposalBountyId: normalizedProposalId,
-            proposalBountyIdLength: normalizedProposalId.length,
-            aptTokenId: normalizedBountyId,
-            aptTokenIdLength: normalizedBountyId.length,
-            match: normalizedProposalId === normalizedBountyId
-        });
-        throw new Error(`Proposal bounty ID (${normalizedProposalId}) does not match bounty contract token ID (${normalizedBountyId})`);
-    }
-
-    // Calculate reward distribution
-    const bountyValue = BigInt(bountyBox.value);
-    const devFeePercent = BigInt(get_dev_fee());
-    const minerFeeAmount = BigInt(1100000);
-    const devFeeAmount = (bountyValue * devFeePercent) / BigInt(100);
-    const proposerERG = bountyValue - devFeeAmount - minerFeeAmount;
-
-    // Handle PFT token distribution
-    const pftToken = bountyTokens.length > 1 ? bountyTokens[1] : null;
-    let proposerPFT = 0n;
-    let contributorsPFT = 0n;
-    let contractContinues = false;
-
-    console.log("Token analysis:", {
-        totalTokens: bountyTokens.length,
-        aptToken: aptToken ? { tokenId: aptToken.tokenId, amount: aptToken.amount } : null,
-        pftToken: pftToken ? { tokenId: pftToken.tokenId, amount: pftToken.amount } : null
-    });
-
-    if (pftToken && pftToken.amount > 0n) {
-        const totalPFT = BigInt(pftToken.amount);
-        contributorsPFT = contributed; // PFT allocated to contributors
-        proposerPFT = totalPFT - contributorsPFT;
-
-        // Contract continues if there are remaining PFT for contributors to claim
-        contractContinues = contributorsPFT > 0n;
-    }
-
-    console.log("Distribution calculation:", {
-        bountyValue: bountyValue.toString(),
-        devFeeAmount: devFeeAmount.toString(),
-        proposerERG: proposerERG.toString(),
-        proposerPFT: proposerPFT.toString(),
-        contributorsPFT: contributorsPFT.toString(),
-        contractContinues
-    });
-
-    // const walletUtxos = (await ergo.get_utxos()) as Box<Amount>[];
-    // const changeAddress = await ergo.get_change_address();
-
-    // Build outputs with proper validation
-    const outputs: OutputBuilder[] = [];
-
-    try {
-        // 1. Updated proposal box with "Approved" status
-        const proposalErgoTreeHex = getErgoTreeHex(proposalBox);
-
-        console.log("Creating proposal box with ergoTree:", typeof proposalErgoTreeHex, proposalErgoTreeHex.substring(0, 50) + "...");
-
-        const updatedProposalBox = new OutputBuilder(
-            BigInt(proposalBox.value),
-            proposalErgoTreeHex
-        );
-
-        // Log and validate proposal tokens before adding
-        const proposalTokens = proposalBox.tokens || (proposalBox as any).assets || [];
-        console.log("Raw proposal tokens:", proposalTokens);
-        console.log("Proposal tokens type:", typeof proposalTokens, Array.isArray(proposalTokens));
-
-        if (proposalTokens.length > 0) {
-            proposalTokens.forEach((token: any, index: number) => {
-                console.log(`Proposal token ${index}:`, typeof token, token);
-                console.log(`  tokenId type: ${typeof token.tokenId}, value:`, token.tokenId);
-                console.log(`  amount type: ${typeof token.amount}, value:`, token.amount);
-            });
-
-            // Validate and add tokens one by one
-            for (const token of proposalTokens) {
-                if (token && token.tokenId && (token.amount !== undefined)) {
-                    const validatedToken = {
-                        tokenId: String(token.tokenId),
-                        amount: BigInt(token.amount)
-                    };
-                    console.log("Adding validated proposal token:", validatedToken);
-                    updatedProposalBox.addTokens(validatedToken);
-                } else {
-                    console.warn("Skipping invalid proposal token:", token);
-                }
-            }
-        } else {
-            console.log("No proposal tokens to add");
-        }
-
-        const proposalRegisters = (proposalBox as any).additionalRegisters || {};
-
-        // Safely extract register values
-        const r4Value = getSerializedValue(proposalRegisters.R4);
-        const r5Value = getSerializedValue(proposalRegisters.R5);
-        const r6Value = getSerializedValue(proposalRegisters.R6);
-        const r7Value = getSerializedValue(proposalRegisters.R7);
-
-        console.log("Proposal register values:", { r4Value, r5Value, r6Value, r7Value });
-
-        updatedProposalBox.setAdditionalRegisters({
-            R4: r4Value || SGroupElement(new Uint8Array(33)).toHex(),
-            R5: r5Value || SColl(SByte, new Uint8Array(32)).toHex(),
-            R6: r6Value || SColl(SByte, new Uint8Array(0)).toHex(),
-            R7: r7Value || SSigmaProp(SGroupElement(new Uint8Array(33))).toHex(),
-            R8: '0402', // Status 1 (Approved) as Int
-        });
-
-        console.log("✓ Proposal box created successfully");
-        outputs.push(updatedProposalBox);
-
-        // 2. Proposer reward box
-        const validatedProposerAddress = validateAddress(hexToErgoAddress(proposerPubKeyHex), "proposer");
-        const proposerRewardBox = new OutputBuilder(
-            proposerERG,
-            validatedProposerAddress
-        );
-
-        console.log("Creating proposer reward box with ERG:", proposerERG.toString());
-
-        if (proposerPFT > 0n && pftToken && pftToken.tokenId) {
-            console.log("Adding PFT to proposer box:", {
-                tokenId: pftToken.tokenId,
-                amount: proposerPFT.toString(),
-                tokenIdType: typeof pftToken.tokenId,
-                amountType: typeof proposerPFT
-            });
-
-            const validatedPFTToken = {
-                tokenId: String(pftToken.tokenId),
-                amount: proposerPFT
-            };
-            proposerRewardBox.addTokens(validatedPFTToken);
-        }
-
-        console.log("✓ Proposer reward box created successfully");
-        outputs.push(proposerRewardBox);
-
-        // 3. Dev fee box
-        if (devFeeAmount > 0n) {
-            const validatedDevAddress = validateAddress(get_dev_contract_address(), "dev fee");
-            const devFeeBox = new OutputBuilder(
-                devFeeAmount,
-                validatedDevAddress
-            );
-            console.log("✓ Dev fee box created successfully");
-            outputs.push(devFeeBox);
-        }
-
-        console.log("Contract does not continue - no bounty box update needed");
-
-    } catch (error) {
-        console.error("Error building transaction outputs:", error);
-        throw new Error(`Transaction building failed: ${(error as Error).message}`);
-    }
-
-    console.log("All outputs created successfully, total:", outputs.length);
-
-    console.log("All outputs created successfully, total:", outputs.length);
-
-    // Validate input boxes before building transaction
-    console.log("=== VALIDATING INPUT BOXES ===");
-
-    // Validate bounty box
-    console.log("Bounty box validation:");
-    console.log("  ergoTree type:", typeof bountyBox.ergoTree);
-    console.log("  value type:", typeof bountyBox.value);
-    console.log("  tokens type:", typeof bountyBox.tokens, Array.isArray(bountyBox.tokens));
-    if ((bountyBox as any).additionalRegisters) {
-        console.log("  additionalRegisters:", Object.keys((bountyBox as any).additionalRegisters));
-        Object.entries((bountyBox as any).additionalRegisters).forEach(([key, value]) => {
-            console.log(`    ${key}: ${typeof value}`, value);
-        });
-    }
-
-    // Validate proposal box  
-    console.log("Proposal box validation:");
-    console.log("  ergoTree type:", typeof proposalBox.ergoTree);
-    console.log("  value type:", typeof proposalBox.value);
-    console.log("  tokens type:", typeof proposalBox.tokens, Array.isArray(proposalBox.tokens));
-    if ((proposalBox as any).additionalRegisters) {
-        console.log("  additionalRegisters:", Object.keys((proposalBox as any).additionalRegisters));
-        Object.entries((proposalBox as any).additionalRegisters).forEach(([key, value]) => {
-            console.log(`    ${key}: ${typeof value}`, value);
-        });
-    }
-
-    // Get and validate wallet UTXOs
     const walletUtxos = (await ergo.get_utxos()) as Box<Amount>[];
-    console.log("Wallet UTXOs count:", walletUtxos.length);
-    walletUtxos.forEach((utxo, index) => {
-        console.log(`  UTXO ${index}:`);
-        console.log(`    ergoTree type: ${typeof utxo.ergoTree}`);
-        console.log(`    value type: ${typeof utxo.value}`);
-        if ((utxo as any).additionalRegisters) {
-            console.log(`    additionalRegisters:`, Object.keys((utxo as any).additionalRegisters));
-            Object.entries((utxo as any).additionalRegisters).forEach(([key, value]) => {
-                console.log(`      ${key}: ${typeof value}`, value);
-            });
-        }
-    });
-
-    console.log("=== END INPUT VALIDATION ===");
-
-    // Create cleaned input boxes
-    const cleanBountyBox = {
-        ...bountyBox,
-        ergoTree: typeof bountyBox.ergoTree === 'string' ? bountyBox.ergoTree : String(bountyBox.ergoTree),
-        value: BigInt(bountyBox.value),
-        tokens: bountyBox.tokens || (bountyBox as any).assets || []
-    };
-
-    // FIXED: Clean proposal box registers
-    const proposalRegisters = (proposalBox as any).additionalRegisters || {};
-    const cleanedProposalRegisters: Record<string, string> = {};
-
-    // Convert proposal box register objects to strings
-    Object.entries(proposalRegisters).forEach(([key, value]) => {
-        const cleanedValue = getSerializedValue(value);
-        if (cleanedValue && cleanedValue.length > 0) {
-            cleanedProposalRegisters[key] = cleanedValue;
-            console.log(`Cleaned proposal register ${key}: ${cleanedValue.substring(0, 20)}...`);
-        }
-    });
-
-    const cleanProposalBox = {
-        ...proposalBox,
-        ergoTree: typeof proposalBox.ergoTree === 'string' ? proposalBox.ergoTree : String(proposalBox.ergoTree),
-        value: BigInt(proposalBox.value),
-        tokens: proposalBox.tokens || (proposalBox as any).assets || [],
-        additionalRegisters: cleanedProposalRegisters
-    };
-
-    const cleanWalletUtxos = walletUtxos.map(utxo => ({
-        ...utxo,
-        ergoTree: typeof utxo.ergoTree === 'string' ? utxo.ergoTree : String(utxo.ergoTree),
-        value: BigInt(utxo.value)
-    }));
-
-    console.log("Building transaction with cleaned inputs...");
-    console.log("Cleaned proposal registers:", Object.keys(cleanedProposalRegisters));
-
     const changeAddress = await ergo.get_change_address();
+    const height = await ergo.get_current_height();
 
-    // Build transaction with cleaned inputs
-    const transactionBuilder = new TransactionBuilder(await ergo.get_current_height())
-        .from([cleanBountyBox, cleanProposalBox, ...cleanWalletUtxos])
-        .withDataFrom([cleanBountyBox])
-        .sendChangeTo(changeAddress)
-        .payFee(RECOMMENDED_MIN_FEE_VALUE);
+    const fleetCompatibleProposalBox = createFleetSdkBox(proposalBox);
 
-    console.log("Adding outputs to transaction...");
-    outputs.forEach((output, index) => {
-        console.log(`Adding output ${index}:`, output);
-        transactionBuilder.to(output);
+    // Replicate the proposal box, only changing the status in R8
+    const updatedProposalBox = new OutputBuilder(
+        BigInt(proposalBox.value),
+        proposalBox.ergoTree
+    );
+
+    if (proposalBox.assets && proposalBox.assets.length > 0) {
+        updatedProposalBox.addTokens(proposalBox.assets);
+    }
+
+    const registers = (proposalBox as any).additionalRegisters;
+
+    updatedProposalBox.setAdditionalRegisters({
+        R4: getSerializedValue(registers.R4),
+        R5: getSerializedValue(registers.R5),
+        R6: getSerializedValue(registers.R6),
+        R7: getSerializedValue(registers.R7),
+        R8: SInt(1).toHex(), // Status 1: Approved
     });
 
-    console.log("Building final transaction...");
+    const unsignedTransaction = new TransactionBuilder(height)
+        .from([fleetCompatibleProposalBox, ...walletUtxos])
+        .to(updatedProposalBox)
+        .sendChangeTo(changeAddress)
+        .payFee(RECOMMENDED_MIN_FEE_VALUE)
+        .build()
+        .toEIP12Object();
 
     try {
-        const unsignedTransaction = await transactionBuilder.build().toEIP12Object();
         const signedTransaction = await ergo.sign_tx(unsignedTransaction);
         const transactionId = await ergo.submit_tx(signedTransaction);
-
-        console.log("Creator approval transaction ID:", transactionId);
+        console.log("Approval transaction submitted:", transactionId);
         return transactionId;
     } catch (error) {
         console.error("Failed to approve proposal:", error);
@@ -897,104 +138,161 @@ export async function creatorApproveProposal(
     }
 }
 
-
 /**
- * Simple bounty claim (legacy path) - anyone can trigger, sends to creator
- * Uses isClaimBountyReward path
+ * After a proposal is approved, this function is called to claim the bounty reward.
+ * This is the second step of the two-step payout process.
  */
 export async function claimBountyReward(
-    version: contract_version,
-    bountyBox: BountyBox
+    bountyBox: BountyBox,
+    approvedProposalBox: ProposalBox
 ): Promise<string | null> {
     if (!ergo) throw new Error("Ergo object is not available");
 
-    // Validate minimum contribution threshold
-    let counters: number[];
-    try {
-        const r6Data = (bountyBox as any).additionalRegisters?.R6 || bountyBox.R6 || "[0,0,0]";
-        console.log("Raw R6 data for claim:", r6Data);
-
-        if (r6Data.startsWith('[')) {
-            counters = JSON.parse(r6Data);
-        } else if (/^[0-9a-fA-F]+$/.test(r6Data)) {
-            // Same hex decoding logic 
-            if (r6Data.startsWith('1103') && r6Data === '1103000000') {
-                counters = [0, 0, 0];
-            } else {
-                counters = [0, 0, 0]; // Fallback
-            }
-        } else {
-            counters = JSON.parse(r6Data);
-        }
-    } catch (e) {
-        console.error("Failed to parse R6 counters for claim:", e);
-        counters = [0, 0, 0];
-    }
-
-    const contributed = BigInt(counters[0]);
-
-    let minimumContribution: bigint;
-    try {
-        const r5Data = (bountyBox as any).additionalRegisters?.R5 || bountyBox.R5 || "0";
-        if (/^[0-9a-fA-F]+$/.test(r5Data) && r5Data !== "0") {
-            if (r5Data.startsWith('05')) {
-                const valueHex = r5Data.substring(2);
-                minimumContribution = valueHex ? BigInt(parseInt(valueHex, 16)) : BigInt(0);
-            } else {
-                minimumContribution = BigInt(parseInt(r5Data, 16));
-            }
-        } else {
-            minimumContribution = BigInt(r5Data);
-        }
-    } catch (e) {
-        console.error("Failed to parse R5 minimum contribution for claim:", e);
-        minimumContribution = BigInt(0);
-    }
-
-    if (contributed < minimumContribution) {
-        throw new Error("Minimum contribution threshold not reached");
-    }
-
-    // Get creator address from bounty details 
-    const creatorDetails = decodeCreatorDetails(bountyBox);
-    const creatorAddress = creatorDetails.address;
-
-    // Calculate distribution
-    const bountyValue = BigInt(bountyBox.value);
-    const devFeePercent = BigInt(get_dev_fee());
-    const minerFeeAmount = BigInt(1100000);
-    const devFeeAmount = (bountyValue * devFeePercent) / BigInt(100);
-    const creatorReward = bountyValue - devFeeAmount - minerFeeAmount;
-
     const walletUtxos = (await ergo.get_utxos()) as Box<Amount>[];
     const changeAddress = await ergo.get_change_address();
+    const height = await ergo.get_current_height();
 
-    const outputs: OutputBuilder[] = [];
-
-    // 1. Creator reward
-    outputs.push(new OutputBuilder(creatorReward, creatorAddress));
-
-    // 2. Dev fee
-    if (devFeeAmount > 0n) {
-        outputs.push(new OutputBuilder(devFeeAmount, get_dev_contract_address()));
+    function hexToUtf8(hex: string): string {
+        let hexString = hex;
+        if (hexString.startsWith('0e')) {
+            hexString = hexString.substring(2);
+            const firstByte = parseInt(hexString.substring(0, 2), 16);
+            if (firstByte < 128) {
+                hexString = hexString.substring(2);
+            } else {
+                hexString = hexString.substring(4);
+            }
+        }
+        
+        let str = '';
+        for (let i = 0; i < hexString.length; i += 2) {
+            const charCode = parseInt(hexString.substr(i, 2), 16);
+            if (charCode > 0) {
+                str += String.fromCharCode(charCode);
+            }
+        }
+        return str;
     }
 
-    const transactionBuilder = new TransactionBuilder(await ergo.get_current_height())
-        .from([bountyBox, ...walletUtxos])
+    const bountyRegisters = (bountyBox as any).additionalRegisters || {};
+    const proposalRegisters = (approvedProposalBox as any).additionalRegisters || {};
+
+    console.log("Bounty registers:", bountyRegisters);
+    console.log("Proposal registers:", proposalRegisters);
+
+    // Verify proposal is approved
+    const proposalStatus = proposalRegisters.R8?.renderedValue || 
+                          getSerializedValue(proposalRegisters.R8);
+    console.log("Proposal status:", proposalStatus);
+    
+    if (proposalStatus !== "1" && proposalStatus !== "0501") {
+        throw new Error("Proposal must be approved (status = 1) before claiming reward");
+    }
+
+    let creatorAddress: string;
+    try {
+        const r8Value = getSerializedValue(bountyRegisters.R8);
+        const decodedString = hexToUtf8(r8Value);
+        const creatorDetails = JSON.parse(decodedString);
+        creatorAddress = creatorDetails.creator;
+        console.log("Decoded creator address:", creatorAddress);
+    } catch (e) {
+        console.error("Failed to decode creator from R8:", e);
+        throw new Error("Could not extract creator address from bounty box");
+    }
+
+    const bountyValue = BigInt(bountyBox.value);
+    const devFeePercent = BigInt(get_dev_fee());
+    const minerFeeAmount = BigInt(RECOMMENDED_MIN_FEE_VALUE);
+    const devFeeAmount = (bountyValue * devFeePercent) / 100n;
+    const proposerReward = bountyValue - devFeeAmount - minerFeeAmount;
+
+    console.log("Bounty value:", bountyValue.toString());
+    console.log("Dev fee:", devFeeAmount.toString());
+    console.log("Miner fee:", minerFeeAmount.toString());
+    console.log("Proposer reward:", proposerReward.toString());
+
+    const r4Value = getSerializedValue(proposalRegisters.R4);
+    const proposerPubKeyHex = r4Value.substring(2);
+    const proposerAddress = hexToErgoAddress(proposerPubKeyHex);
+    
+    console.log("Proposer address:", proposerAddress);
+
+    const fleetCompatibleBountyBox = createFleetSdkBox(bountyBox);
+    const fleetCompatibleProposalBox = createFleetSdkBox(approvedProposalBox);
+    
+    const outputs: OutputBuilder[] = [];
+    
+    // Check if bounty has tokens
+    const hasTokens = bountyBox.assets && bountyBox.assets.length > 0;
+    
+    if (hasTokens) {
+        console.log("Bounty has tokens, creating replicated bounty box at OUTPUTS(0)");
+        // Must replicate the bounty box with tokens at OUTPUTS(0)
+        const replicatedBounty = new OutputBuilder(
+            SAFE_MIN_BOX_VALUE, // Minimum value since funds are being withdrawn
+            bountyBox.ergoTree
+        );
+        
+        // Add all tokens from original bounty
+        replicatedBounty.addTokens(bountyBox.assets);
+        
+        // Preserve all registers
+        replicatedBounty.setAdditionalRegisters({
+            R4: getSerializedValue(bountyRegisters.R4),
+            R5: getSerializedValue(bountyRegisters.R5),
+            R6: getSerializedValue(bountyRegisters.R6),
+            R7: getSerializedValue(bountyRegisters.R7),
+            R8: getSerializedValue(bountyRegisters.R8),
+            R9: getSerializedValue(bountyRegisters.R9),
+        });
+        
+        outputs.push(replicatedBounty);
+        
+        // Adjust proposer reward to account for the minimum value in replicated box
+        const adjustedProposerReward = proposerReward - SAFE_MIN_BOX_VALUE;
+        
+        // Output 1: Proposer reward
+        outputs.push(new OutputBuilder(adjustedProposerReward, proposerAddress));
+        
+        console.log("- Output 0 (Replicated bounty):", SAFE_MIN_BOX_VALUE.toString(), "with", bountyBox.assets.length, "tokens");
+        console.log("- Output 1 (Proposer):", adjustedProposerReward.toString(), "to", proposerAddress);
+    } else {
+        console.log("Bounty has no tokens, spending fully without replication");
+        // No tokens, can spend fully without replication
+        // Output 0: Proposer reward
+        outputs.push(new OutputBuilder(proposerReward, proposerAddress));
+        
+        console.log("- Output 0 (Proposer):", proposerReward.toString(), "to", proposerAddress);
+    }
+
+    // Dev fee output 
+    outputs.push(new OutputBuilder(devFeeAmount, get_dev_contract_address()));
+    console.log(`- Output ${outputs.length - 1} (Dev fee):`, devFeeAmount.toString(), "to", get_dev_contract_address());
+    
+    console.log("Building transaction with:");
+    console.log("- Inputs: bounty box + wallet UTXOs");
+    console.log("- Data inputs:", [fleetCompatibleProposalBox.boxId]);
+    
+    const unsignedTransaction = new TransactionBuilder(height)
+        .from([fleetCompatibleBountyBox, ...walletUtxos])
+        .withDataFrom([fleetCompatibleProposalBox])
+        .to(outputs)
         .sendChangeTo(changeAddress)
-        .payFee(RECOMMENDED_MIN_FEE_VALUE);
+        .payFee(minerFeeAmount)
+        .build()
+        .toEIP12Object();
 
-    outputs.forEach(output => transactionBuilder.to(output));
-
-    const unsignedTransaction = await transactionBuilder.build().toEIP12Object();
+    console.log("Unsigned transaction outputs:", unsignedTransaction.outputs?.length);
 
     try {
         const signedTransaction = await ergo.sign_tx(unsignedTransaction);
         const transactionId = await ergo.submit_tx(signedTransaction);
-
+        console.log("Bounty claim transaction submitted:", transactionId);
         return transactionId;
     } catch (error) {
-        console.error("Failed to claim bounty:", error);
-        return null;
+        console.error("Failed to claim bounty reward:", error);
+        console.error("Full error details:", JSON.stringify(error, null, 2));
+        throw error;
     }
 }

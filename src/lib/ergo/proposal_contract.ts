@@ -75,9 +75,24 @@ function generate_proposal_contract_v1_0(): string {
     ))
   }
 
+  val isApprovalAction = {
+    allOf(Coll(
+      (isPending || isRejected),
+      OUTPUTS(0).R4[GroupElement].get == proposerPK,
+      OUTPUTS(0).R5[Coll[Byte]].get == bountyId,
+      OUTPUTS(0).R6[Coll[Byte]].get == metadataJson,
+      OUTPUTS(0).R7[SigmaProp].get == bountyCreatorProp,
+      OUTPUTS(0).value == SELF.value,
+      OUTPUTS(0).propositionBytes == SELF.propositionBytes,
+      OUTPUTS(0).R8[Int].get == 1,
+      bountyCreatorProp
+    ))
+  }
+
   val actions = anyOf(Coll(
     isDisputeAction,
-    isMaintenanceAction
+    isMaintenanceAction,
+    isApprovalAction
   ))
 
   val validSetup = allOf(Coll(
