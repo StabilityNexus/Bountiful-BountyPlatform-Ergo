@@ -1,3 +1,13 @@
+<script lang="ts" context="module">
+    declare const ergo: {
+        get_change_address(): Promise<string>;
+        get_utxos(): Promise<any[]>;
+        get_current_height(): Promise<number>;
+        sign_tx(tx: any): Promise<any>;
+        submit_tx(tx: any): Promise<string>;
+    };
+</script>
+
 <script lang="ts">
     import {
         type Bounty,
@@ -33,6 +43,22 @@
     import { get } from "svelte/store";
     import { onDestroy } from "svelte";
     import { onMount } from "svelte";
+    import { judge_detail} from "$lib/common/store";
+    import { fetchJudgeProofByAddress } from "$lib/ergo/reputation/fetch";
+
+    async function viewJudge(judgeAddress: string) {
+        // const ergo = get(platform)?.ergo;
+        if (!ergo) {
+            alert("Please connect your wallet first.");
+            return;
+        }
+        const proof = await fetchJudgeProofByAddress(judgeAddress, ergo);
+        if (proof) {
+            judge_detail.set(proof);
+        } else {
+            alert("Could not find a judge profile for this address.");
+        }
+    }
 
     export let bountyId: string = "";
 
@@ -639,14 +665,13 @@
                                     {#if (bounty.content?.judges?.length ?? 0) > 0}
                                         <span class="value">
                                             {#each bounty.content.judges ?? [] as judge, index (judge)}
-                                                <a
-                                                    href="{web_explorer_uri_addr}{judge}"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                <button
+                                                    on:click={() =>
+                                                        viewJudge(judge)}
                                                     class="judge-link"
                                                 >
                                                     {truncateAddress(judge)}
-                                                </a>
+                                                </button>
                                                 {index <
                                                 (bounty.content.judges ?? [])
                                                     .length -

@@ -1,39 +1,63 @@
 // utils.ts
-import { ErgoAddress, SByte, SColl, SConstant, SGroupElement } from "@fleet-sdk/core";
+import { ErgoAddress, SByte, SColl, SConstant, SGroupElement, type Box, type Amount } from "@fleet-sdk/core";
 import { stringToBytes } from "@scure/base";
 import { connected } from "../common/store";
 import { get } from "svelte/store";
 
 export function serializedToRendered(serializedValue: string): string {
+    if (!serializedValue) return "";
     // Assuming the serialized value always starts with a pattern to strip (e.g., '0e')
     const patternToStrip = '0e';
     if (serializedValue.startsWith(patternToStrip)) {
         // Remove the pattern and return the hex string
-        return serializedValue.substring(patternToStrip.length).substring(2);
+        const lengthHex = serializedValue.substring(2, 4);
+        const length = parseInt(lengthHex, 16);
+        return serializedValue.substring(4, 4 + (length * 2));
     } else {
-        // If the pattern does not exist at the start, return the original string
-        return serializedValue.substring(2);
+        // Fallback for other formats
+        return serializedValue;
     }
 }
 
 export function hexToUtf8(hexString: string): string | null {
     try {
-        if (hexString.length % 2 !== 0) {
+        if (!hexString || hexString.length % 2 !== 0) {
             return null;
         }
-    
-        // Convierte la cadena hexadecimal a un array de bytes
-        const byteArray = new Uint8Array(hexString.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
-    
-        // Crea un nuevo TextDecoder para convertir el array de bytes a una cadena UTF-8
+        const bytesMatch = hexString.match(/.{1,2}/g);
+        if (!bytesMatch) {
+            return null;
+        }
+        const byteArray = new Uint8Array(bytesMatch.map(byte => parseInt(byte, 16)));
         const decoder = new TextDecoder('utf-8');
-        const utf8String = decoder.decode(byteArray);
-    
-        return utf8String;
+        return decoder.decode(byteArray);
     } catch {
         return null;
     }
-  }
+}
+
+export function hexToBytes(hex: string): Uint8Array {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+        const hexSlice = hex.substring(i * 2, i * 2 + 2);
+        if (hexSlice) {
+            bytes[i] = parseInt(hexSlice, 16);
+        }
+    }
+    return bytes;
+}
+
+export function parseBox(box: any): Box<Amount> {
+    return {
+        ...box,
+        value: BigInt(box.value),
+        assets: box.assets.map((asset: any) => ({
+            ...asset,
+            amount: BigInt(asset.amount)
+        })),
+    };
+}
+
 
 export function generate_pk_proposition(wallet_pk: string): string {
     const pk = ErgoAddress.fromBase58(wallet_pk).getPublicKeys()[0];
@@ -107,4 +131,3 @@ export function getRegisterUtf8Value(register: any): string | null {
 export function toBytes(str: string): number[] {
   return Array.from(new TextEncoder().encode(str));
 }
-

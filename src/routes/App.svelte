@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { address, connected, balance, bounty_detail, bounty_token_amount, temporal_token_amount, timer } from "$lib/common/store";
+  import { address, connected, balance, bounty_detail, bounty_token_amount, temporal_token_amount, timer, judge_detail } from "$lib/common/store";
   import MyBounties from './MyBounties.svelte';
   import MyContributions from './MyContributions.svelte';
   import CreateBounty from './NewBounty.svelte';
+  import CreateJudge from './CreateJudge.svelte';
+  import JudgeList from './JudgeList.svelte';
+  import ShowJudge from './ShowJudge.svelte';
   import BountyList from './BountyList.svelte';
   import BountyDetails from './BountyDetails.svelte';
   import { loadBountyById } from '$lib/common/load_by_id';
@@ -161,6 +164,11 @@
                         Browse Bounties
                     </a>
                 </li>
+                <li class={activeTab === 'browseJudges' ? 'active' : ''}>
+                    <a href="#" on:click={() => changeTab('browseJudges')}>
+                        Browse Judges
+                    </a>
+                </li>
                 <li class={activeTab === 'myContributions' ? 'active' : ''}>
                     <a href="#" on:click={() => changeTab('myContributions')}>
                         My Contributions
@@ -174,6 +182,11 @@
                 <li class={activeTab === 'createBounty' ? 'active' : ''}>
                     <a href="#" on:click={() => changeTab('createBounty')}>
                         Create Bounty
+                    </a>
+                </li>
+                <li class={activeTab === 'createJudge' ? 'active' : ''}>
+                    <a href="#" on:click={() => changeTab('createJudge')}>
+                        Register as Judge
                     </a>
                 </li>
             </ul>
@@ -236,6 +249,11 @@
                     Browse Bounties
                 </a>
             </li>
+            <li class={activeTab === 'browseJudges' ? 'active' : ''}>
+                <a href="#" on:click={() => changeTab('browseJudges')}>
+                    Browse Judges
+                </a>
+            </li>
             <li class={activeTab === 'myContributions' ? 'active' : ''}>
                 <a href="#" on:click={() => changeTab('myContributions')}>
                     My Contributions
@@ -249,6 +267,11 @@
             <li class={activeTab === 'createBounty' ? 'active' : ''}>
                 <a href="#" on:click={() => changeTab('createBounty')}>
                     Create Bounty
+                </a>
+            </li>
+            <li class={activeTab === 'createJudge' ? 'active' : ''}>
+                <a href="#" on:click={() => changeTab('createJudge')}>
+                    Register as Judge
                 </a>
             </li>
         </ul>
@@ -297,9 +320,14 @@
     </Dialog.Root>
 {/if}
 
-{#if $bounty_detail === null}
+{#if $judge_detail !== null}
+    <ShowJudge />
+{:else if $bounty_detail === null}
     {#if activeTab === 'acquireTokens'}
         <BountyList />
+    {/if}
+    {#if activeTab === 'browseJudges'}
+        <JudgeList />
     {/if}
     {#if activeTab === 'myContributions'}
         <MyContributions />
@@ -309,6 +337,9 @@
     {/if}
     {#if activeTab === 'createBounty'}
         <CreateBounty />
+    {/if}
+    {#if activeTab === 'createJudge'}
+        <CreateJudge />
     {/if}
 {:else}
     <BountyDetails />

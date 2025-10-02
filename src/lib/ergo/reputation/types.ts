@@ -1,0 +1,1 @@
+export const JUDGE = "be145b4248aae2535d4e0c39355e5e7ef7be703a2a3831ce58f02130c503b389";
