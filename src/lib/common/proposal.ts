@@ -159,6 +159,25 @@ export function parseProposalBox(box: Box<Amount>, index: number): Proposal | nu
         const bountyId = bountyIdRaw
             ? parseErgoRegisterJson(bountyIdRaw as string) ?? ""
             : "";
+        
+        const statusRaw = box.additionalRegisters?.R8 as any;
+        let status = "pending";
+        if (statusRaw) {
+            const statusVal = parseInt(statusRaw.renderedValue);
+            switch (statusVal) {
+                case 1:
+                    status = "approved";
+                    break;
+                case 2:
+                    status = "rejected";
+                    break;
+                case 3:
+                    status = "disputed";
+                    break;
+                default:
+                    status = "pending";
+            }
+        }
 
         const ERGO_GENESIS = 1561939200000;
         const TIME_PER_BLOCK = 2 * 60 * 1000;
@@ -178,12 +197,13 @@ export function parseProposalBox(box: Box<Amount>, index: number): Proposal | nu
             developer,
             summary: parsed.summary || parsed.title || "No summary",
             url: parsed.url || "",
-            status: "pending",
+            status,
             submittedAt,
             boxId: box.boxId,
             bountyId,
             rawContent: { ...parsed, bountyId },
             registers: box.additionalRegisters,
+            box,
         };
     } catch (err) {
         console.error("Failed to parse proposal box:", err);

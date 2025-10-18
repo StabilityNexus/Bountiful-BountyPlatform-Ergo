@@ -23,7 +23,7 @@ export async function temp_exchange(
         throw new Error("Ergo object not available");
     }
 
-    token_amount = Math.floor(token_amount * Math.pow(10, bounty.token_details.decimals));
+    token_amount = Math.trunc(token_amount * Math.pow(10, bounty.token_details.decimals));
 
     // Get the wallet address (will be the user address)
     const walletPk = await ergo.get_change_address();

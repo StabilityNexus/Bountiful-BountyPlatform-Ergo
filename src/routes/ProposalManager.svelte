@@ -23,7 +23,12 @@
     } from "$lib/common/proposal";
     import { web_explorer_uri_addr } from "$lib/ergo/envs";
 
-    import { creatorApproveProposal } from "$lib/ergo/actions/approve_proposal";
+    import {
+        creatorApproveProposal,
+        claimBountyReward,
+    } from "$lib/ergo/actions/approve_proposal";
+    import { disputeProposal } from "$lib/ergo/actions/dispute_proposal";
+    import { rejectProposal } from "$lib/ergo/actions/reject_proposal";
 
     export let bounty: Bounty;
     export let deadline_passed: boolean = false;
@@ -291,6 +296,18 @@
 
                             developer = sanitizeDeveloperAddress(developer);
 
+                            const statusValue =
+                                proposal.box.additionalRegisters.R8
+                                    ?.renderedValue;
+                            let status = "pending";
+                            if (statusValue === "1") {
+                                status = "approved";
+                            } else if (statusValue === "2") {
+                                status = "rejected";
+                            } else if (statusValue === "3") {
+                                status = "disputed";
+                            }
+
                             return {
                                 id:
                                     proposal.id ||
@@ -298,7 +315,7 @@
                                 developer,
                                 summary: proposal.summary || "No summary",
                                 url: proposal.url || "",
-                                status: proposal.status || "pending",
+                                status: status,
                                 submittedAt: proposal.submittedAt || new Date(),
                                 boxId: proposal.boxId || "",
                                 rawContent: proposal.rawContent || {},
@@ -345,8 +362,15 @@
 
             console.log("Submitting proposal data:", submissionData);
 
+            let creatorAddress = bounty.constants?.creator;
+            if (!creatorAddress) {
+                // Fallback or error handling if creator address is not found
+                throw new Error("Bounty creator address not found.");
+            }
+
             const txId = await submit_proposal(
                 bounty.bounty_id,
+                creatorAddress,
                 "v1_0",
                 $address,
                 submissionData,
@@ -392,146 +416,249 @@
         }
     }
 
-async function approveProposal(proposalId: string) {
-    console.log("=== APPROVE PROPOSAL DEBUG START ===");
-    console.log("ProposalId:", proposalId);
-    console.log("Bounty exists:", !!bounty);
-    console.log("Is current user judge:", isCurrentUserJudge);
-    console.log("Current address:", $address);
-    
-    // Clear any previous error messages
-    errorMessage = null;
-    
-    if (!bounty) {
-        errorMessage = "No bounty found";
-        console.error("No bounty found");
-        return;
-    }
-    
-    if (!isCurrentUserJudge) {
-        errorMessage = "Only the bounty creator can approve proposals";
-        console.error("User is not the judge. isCurrentUserJudge:", isCurrentUserJudge);
-        return;
-    }
+    async function approveProposal(proposalId: string) {
+        console.log("=== APPROVE PROPOSAL DEBUG START ===");
+        console.log("ProposalId:", proposalId);
+        console.log("Bounty exists:", !!bounty);
+        console.log("Is current user judge:", isCurrentUserJudge);
+        console.log("Current address:", $address);
 
-    const proposal = proposals.find((p) => p.id === proposalId);
-    if (!proposal) {
-        errorMessage = "Proposal not found";
-        console.error("Proposal not found with ID:", proposalId);
-        console.log("Available proposals:", proposals.map(p => p.id));
-        return;
-    }
-    
-    console.log("Found proposal:", proposal);
+        // Clear any previous error messages
+        errorMessage = null;
 
-    // Validate contribution threshold
-    try {
-        const bountyBox = bounty.box as any;
-        console.log("Bounty box:", bountyBox);
-        
-        const countersRaw = bountyBox.R6 || "[0,0,0]";
-        console.log("Counters raw:", countersRaw);
-        
-        const counters = JSON.parse(countersRaw);
-        console.log("Parsed counters:", counters);
-
-        const contributed = BigInt(counters?.[0] || 0);
-        const minimumContribution = BigInt(bountyBox.R5 || "0");
-        
-        console.log("Contributed:", contributed.toString());
-        console.log("Minimum contribution:", minimumContribution.toString());
-
-        if (contributed < minimumContribution) {
-            errorMessage = "Minimum contribution threshold not yet reached";
-            console.error("Contribution threshold not met");
+        if (!bounty) {
+            errorMessage = "No bounty found";
+            console.error("No bounty found");
             return;
         }
-        
-        console.log("Contribution threshold validation passed");
-    } catch (e) {
-        console.error("Failed to validate contribution threshold:", e);
-        errorMessage = "Failed to validate bounty state";
-        return;
-    }
 
-    if (!$address) {
-        errorMessage = "No wallet address found";
-        console.error("No address found");
-        return;
-    }
-
-    // Set loading state
-    isSubmitting = true;
-    console.log("Setting isSubmitting to true");
-
-    try {
-        const proposalBox = proposal.box;
-        if (!proposalBox) {
-            throw new Error("Proposal box data is missing from the proposal object.");
-        }
-        
-        console.log("Using proposal.box for approval:", proposalBox);
-
-        console.log("=== CALLING creatorApproveProposal ===");
-        console.log("Bounty version:", bounty.version);
-        console.log("Bounty box:", bounty.box);
-        console.log("Creator address:", $address);
-
-        // Call the blockchain function
-        const txId = await creatorApproveProposal(
-            bounty.version,
-            bounty.box as any,
-            proposalBox,
-            $address
-        );
-
-        console.log("Approval transaction result:", txId);
-
-        if (txId) {
-            // Update proposal status locally
-            proposals = proposals.map((p) =>
-                p.id === proposalId ? { ...p, status: "approved" } : p,
+        if (!isCurrentUserJudge) {
+            errorMessage = "Only the bounty creator can approve proposals";
+            console.error(
+                "User is not the judge. isCurrentUserJudge:",
+                isCurrentUserJudge,
             );
-            transactionId = txId;
-            errorMessage = null;
-            console.log("Local state updated successfully");
-        } else {
-            throw new Error("Approval transaction returned no transaction ID");
+            return;
         }
-        
-    } catch (err) {
-        console.error("Approval error:", err);
-        console.error("Error stack:", (err as Error).stack);
-        errorMessage = (err as any).message || "Failed to approve proposal";
-    } finally {
-        isSubmitting = false;
-        console.log("Setting isSubmitting to false");
-        console.log("Final error message:", errorMessage);
-        console.log("=== APPROVE PROPOSAL DEBUG END ===");
+
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal) {
+            errorMessage = "Proposal not found";
+            console.error("Proposal not found with ID:", proposalId);
+            console.log(
+                "Available proposals:",
+                proposals.map((p) => p.id),
+            );
+            return;
+        }
+
+        console.log("Found proposal:", proposal);
+
+        // Validate contribution threshold
+        try {
+            const bountyBox = bounty.box as any;
+            console.log("Bounty box:", bountyBox);
+
+            const countersRaw = bountyBox.R6 || "[0,0,0]";
+            console.log("Counters raw:", countersRaw);
+
+            const counters = JSON.parse(countersRaw);
+            console.log("Parsed counters:", counters);
+
+            const contributed = BigInt(counters?.[0] || 0);
+            const minimumContribution = BigInt(bountyBox.R5 || "0");
+
+            console.log("Contributed:", contributed.toString());
+            console.log(
+                "Minimum contribution:",
+                minimumContribution.toString(),
+            );
+
+            if (contributed < minimumContribution) {
+                errorMessage = "Minimum contribution threshold not yet reached";
+                console.error("Contribution threshold not met");
+                return;
+            }
+
+            console.log("Contribution threshold validation passed");
+        } catch (e) {
+            console.error("Failed to validate contribution threshold:", e);
+            errorMessage = "Failed to validate bounty state";
+            return;
+        }
+
+        if (!$address) {
+            errorMessage = "No wallet address found";
+            console.error("No address found");
+            return;
+        }
+
+        // Set loading state
+        isSubmitting = true;
+        console.log("Setting isSubmitting to true");
+
+        try {
+            const proposalBox = proposal.box;
+            if (!proposalBox) {
+                throw new Error(
+                    "Proposal box data is missing from the proposal object.",
+                );
+            }
+
+            console.log("Using proposal.box for approval:", proposalBox);
+
+            console.log("=== CALLING creatorApproveProposal ===");
+            console.log("Bounty version:", bounty.version);
+            console.log("Bounty box:", bounty.box);
+            console.log("Creator address:", $address);
+
+            // Call the blockchain function
+            const txId = await creatorApproveProposal(proposalBox, $address);
+
+            console.log("Approval transaction result:", txId);
+
+            if (txId) {
+                // Update proposal status locally
+                proposals = proposals.map((p) =>
+                    p.id === proposalId ? { ...p, status: "approved" } : p,
+                );
+                transactionId = txId;
+                errorMessage = null;
+                console.log("Local state updated successfully");
+            } else {
+                throw new Error(
+                    "Approval transaction returned no transaction ID",
+                );
+            }
+        } catch (err) {
+            console.error("Approval error:", err);
+            console.error("Error stack:", (err as Error).stack);
+            errorMessage = (err as any).message || "Failed to approve proposal";
+        } finally {
+            isSubmitting = false;
+            console.log("Setting isSubmitting to false");
+            console.log("Final error message:", errorMessage);
+            console.log("=== APPROVE PROPOSAL DEBUG END ===");
+        }
     }
-}
-    // async function rejectProposal(proposalId: string) {
-    //     if (!bounty || !isCurrentUserJudge) return;
 
-    //     const proposal = proposals.find(p => p.id === proposalId);
-    //     if (!proposal) return;
+    async function claimReward(proposalId: string) {
+        console.log("=== CLAIM REWARD START ===");
+        errorMessage = null;
 
-    //     isSubmitting = true;
-    //     errorMessage = null;
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal) {
+            errorMessage = "Proposal not found";
+            return;
+        }
 
-    //     try {
-    //         // Call the blockchain reject (off-chain or on-chain)
-    //         await chainRejectProposal(proposal.rawContent as any, "Judge rejected");
+        if (!bounty?.box) {
+            errorMessage = "Bounty box not found";
+            return;
+        }
 
-    //         proposals = proposals.map(p =>
-    //             p.id === proposalId ? { ...p, status: "rejected" } : p
-    //         );
-    //     } catch (err) {
-    //         errorMessage = (err as any).message || "Failed to reject proposal";
-    //     } finally {
-    //         isSubmitting = false;
-    //     }
-    // }
+        // Fetch the latest proposal box from blockchain
+        try {
+            isSubmitting = true;
+
+            // The proposal.box should already be the approved one, but we can use it directly
+            const approvedProposalBox = proposal.box;
+
+            console.log("Claiming reward for proposal:", proposalId);
+            console.log("Using bounty box:", bounty.box);
+            console.log("Using approved proposal box:", approvedProposalBox);
+
+            const txId = await claimBountyReward(
+                bounty.box as any,
+                approvedProposalBox,
+            );
+
+            if (txId) {
+                transactionId = txId;
+                console.log("Claim transaction successful:", txId);
+
+                // Update proposal status to completed
+                proposals = proposals.map((p) =>
+                    p.id === proposalId ? { ...p, status: "completed" } : p,
+                );
+
+                // Reload proposals after a delay
+                setTimeout(loadProposals, 5000);
+            }
+        } catch (e) {
+            console.error("Claim reward error:", e);
+            errorMessage = (e as Error).message;
+        } finally {
+            isSubmitting = false;
+            console.log("=== CLAIM REWARD END ===");
+        }
+    }
+
+    async function handleReject(proposalId: string) {
+        console.log("=== REJECT PROPOSAL START ===");
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal || !$address) {
+            console.error("Reject proposal: missing proposal or address");
+            return;
+        }
+
+        console.log("Rejecting proposal:", proposal);
+        console.log("Bounty box:", bounty.box);
+
+        isSubmitting = true;
+        errorMessage = null;
+        try {
+            const txId = await rejectProposal(
+                bounty.version,
+                bounty.box as any,
+                proposal.box,
+                $address,
+            );
+            if (txId) {
+                transactionId = txId;
+                setTimeout(loadProposals, 5000);
+            }
+        } catch (e) {
+            console.error("Reject proposal error:", e);
+            errorMessage = (e as Error).message;
+        } finally {
+            isSubmitting = false;
+            console.log("=== REJECT PROPOSAL END ===");
+        }
+    }
+
+    async function handleDispute(proposalId: string) {
+        console.log("=== DISPUTE PROPOSAL START ===");
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal || !$address) {
+            console.error("Dispute proposal: missing proposal or address");
+            return;
+        }
+
+        console.log("Disputing proposal:", proposal);
+        console.log("Bounty box:", bounty.box);
+
+        isSubmitting = true;
+        errorMessage = null;
+        try {
+            const txId = await disputeProposal(
+                bounty.version,
+                bounty.box as any,
+                proposal.box,
+                $address,
+            );
+            if (txId) {
+                transactionId = txId;
+                setTimeout(loadProposals, 5000);
+            }
+        } catch (e) {
+            console.error("Dispute proposal error:", e);
+            errorMessage = (e as Error).message;
+        } finally {
+            isSubmitting = false;
+            console.log("=== DISPUTE PROPOSAL END ===");
+        }
+    }
 
     // Initialize proposals when component loads
     $: if (bounty) {
@@ -584,7 +711,7 @@ async function approveProposal(proposalId: string) {
                 🎯 You are the bounty creator - you can approve proposals
             </div>
         {/if}
-        {#if $connected && !deadline_passed && !is_max_submissions}
+        {#if $connected && !deadline_passed}
             <button
                 class="submit-btn primary"
                 style="background-color: #FF8C00; color: black;"
@@ -606,11 +733,7 @@ async function approveProposal(proposalId: string) {
                     <div class="card-header">
                         <h3 class="proposal-title">{proposal.summary}</h3>
                         <div class="status-badge status-{proposal.status}">
-                            {proposal.status === "approved"
-                                ? "Approved"
-                                : proposal.status === "rejected"
-                                  ? "Rejected"
-                                  : "Pending"}
+                            {proposal.status}
                         </div>
                     </div>
 
@@ -684,24 +807,51 @@ async function approveProposal(proposalId: string) {
                         {/if}
                     </div>
 
-                    {#if isCurrentUserJudge && proposal.status === "pending"}
-                        <div class="card-actions">
+                    <div class="card-actions">
+                        {#if isCurrentUserJudge}
+                            {#if proposal.status === "pending" || proposal.status === "disputed"}
+                                <button
+                                    class="action-btn approve"
+                                    on:click={() =>
+                                        approveProposal(proposal.id)}
+                                    disabled={isSubmitting}
+                                >
+                                    Approve
+                                </button>
+                                <button
+                                    class="action-btn reject"
+                                    on:click={() => handleReject(proposal.id)}
+                                    disabled={isSubmitting}
+                                >
+                                    Reject
+                                </button>
+                            {/if}
+                            {#if proposal.status === "approved"}
+                                <button
+                                    class="action-btn claim"
+                                    on:click={() => claimReward(proposal.id)}
+                                    disabled={isSubmitting}
+                                >
+                                    💰 Claim Reward
+                                </button>
+                            {/if}
+                        {/if}
+                        {#if $address && ($address === proposal.developer || isCurrentUserJudge) && (proposal.status === "pending" || proposal.status === "approved" || proposal.status === "rejected")}
                             <button
-                                class="action-btn approve"
-                                on:click={() => approveProposal(proposal.id)}
+                                class="action-btn dispute"
+                                on:click={() => handleDispute(proposal.id)}
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting
-                                    ? "Processing..."
-                                    : "Approve Proposal"}
+                                Dispute
                             </button>
-                            <!-- Note: Rejection would be off-chain or through a separate mechanism -->
-                        </div>
-                    {:else if proposal.status === "approved"}
+                        {/if}
+                    </div>
+
+                    <!-- {#if proposal.status === "approved"}
                         <div class="approval-notice">
                             ✅ Approved by bounty creator
                         </div>
-                    {/if}
+                    {/if} -->
                 </div>
             {/each}
         </div>
@@ -810,6 +960,19 @@ async function approveProposal(proposalId: string) {
 {/if}
 
 <style>
+    .action-btn.claim {
+        background-color: #f39c12;
+        color: white;
+    }
+
+    .action-btn.claim:hover {
+        background-color: #e67e22;
+    }
+
+    .status-completed {
+        background-color: #d1ecf1;
+        color: #0c5460;
+    }
     .proposals-section {
         max-width: 1200px;
         margin: 0 auto;
@@ -932,6 +1095,11 @@ async function approveProposal(proposalId: string) {
         color: #856404;
     }
 
+    .status-disputed {
+        background-color: #f5c6cb;
+        color: #721c24;
+    }
+
     .card-content {
         padding: 1.5rem;
     }
@@ -1044,6 +1212,15 @@ async function approveProposal(proposalId: string) {
 
     .action-btn.reject:hover {
         background-color: #c0392b;
+    }
+
+    .action-btn.dispute {
+        background-color: #f39c12;
+        color: white;
+    }
+
+    .action-btn.dispute:hover {
+        background-color: #e67e22;
     }
 
     .empty-state {

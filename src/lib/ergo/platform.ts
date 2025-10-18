@@ -7,6 +7,8 @@ import { withdraw } from './actions/withdraw';
 import { buy_refund } from './actions/buy_refund';
 import { rebalance } from './actions/rebalance';
 import { temp_exchange } from './actions/temp_exchange';
+import { updateProposalStatus } from './actions/update_proposal_status';
+import type { ProposalBox } from './actions/approve_proposal';
 import { explorer_uri, network_id } from './envs';
 import { address, connected, network, balance } from "../common/store";
 import { type contract_version } from './contract';
@@ -173,6 +175,10 @@ export class ErgoPlatform implements Platform {
     return await temp_exchange(bounty, token_amount);
   }
 
+  async updateProposalStatus(proposalBox: ProposalBox, newStatus: 0 | 3, creatorAddress: string): Promise<string | null> {
+    return await updateProposalStatus(proposalBox, newStatus, creatorAddress);
+  }
+
   async fetch(offset: number = 0): Promise<Map<string, Bounty>> {
 
     return await fetch_bounties(offset);
@@ -210,22 +216,35 @@ export class ErgoPlatform implements Platform {
     const version: proposal_contract_version = "v1_0";
     const boxesWithParsed = await fetch_proposals(version);
 
-    return Promise.all(boxesWithParsed.map(async (box) => ({
-      id: box.boxId,
-      proposer: box.parsed.proposer,
-      bountyId: box.parsed.bountyId,
-      title: box.parsed.title,
-      url: box.parsed.url,
-      cost: box.parsed.cost,
-      platform: box.platform,
-      box: box,
-      developer: box.parsed.proposer,
-      summary: box.parsed.title,
-      status: "pending",
-      submittedAt: await this.blockHeightToDate(box.creationHeight),
-      boxId: box.boxId,
-      rawContent: JSON.stringify(box.additionalRegisters),
-      registers: box.additionalRegisters,
-    })));
+    return Promise.all(boxesWithParsed.map(async (box) => {
+      const r8 = (box.additionalRegisters as any)?.R8;
+      let status: 'pending' | 'approved' | 'rejected' | 'disputed' = 'pending';
+      if (r8 && r8.serializedValue) {
+        // The value is a hex string of a number, e.g. "0506" for 3.
+        // The first byte is the type (05 for Int), the rest is the value.
+        const statusVal = parseInt(r8.serializedValue.slice(2), 16);
+        if (statusVal === 3) {
+          status = 'disputed';
+        }
+      }
+
+      return {
+        id: box.boxId,
+        proposer: box.parsed.proposer,
+        bountyId: box.parsed.bountyId,
+        title: box.parsed.title,
+        url: box.parsed.url,
+        cost: box.parsed.cost,
+        platform: box.platform,
+        box: box,
+        developer: box.parsed.proposer,
+        summary: box.parsed.title,
+        status: status,
+        submittedAt: await this.blockHeightToDate(box.creationHeight),
+        boxId: box.boxId,
+        rawContent: JSON.stringify(box.additionalRegisters),
+        registers: box.additionalRegisters,
+      };
+    }));
   }
 }

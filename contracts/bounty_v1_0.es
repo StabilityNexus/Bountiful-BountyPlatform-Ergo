@@ -1,4 +1,5 @@
 {
+
 // ===== Contract Description ===== //
 // Name: Bountiful Bounty Platform Contract
 // Description: Enables bounty creation, contribution management, and reward distribution
@@ -106,6 +107,7 @@
 // $dev_fee_contract_bytes_hash: Blake2b-256 base16 string hash of the dev fee contract proposition bytes.
 // $dev_fee: Percentage fee allocated to the developer (e.g., 5 for 5%).
 // $token_id: Unique string identifier for the bounty reward token.
+// $proposal_contract_hash: Blake2b-256 base16 string hash of the proposal contract proposition bytes.
 
 // ===== Context Variables ===== //
 // None
@@ -113,7 +115,7 @@
 // ===== Helper Functions ===== //
 // None
 
-  def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
+def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
     // APT amount that serves as temporary contribution token that is currently on the contract available to exchange.
 
     val bounty_reward_token_amount = if (contract.tokens.size == 1) 0L else contract.tokens(1)._2
@@ -122,9 +124,9 @@
     val exchanged                  = contract.R6[Coll[Long]].get(2)  // If the exchanged APT -> PFT amount is not accounted for, it will result in double-counting the contributed amount.
 
     bounty_reward_token_amount - contributed + refunded + exchanged
-  }
+}
 
-  def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
+def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
 
     val prop: SigmaProp = propAndBox._1
     val box: Box = propAndBox._2
@@ -143,8 +145,7 @@
         (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
 
     }
-
-  }
+}
 
   val selfId = SELF.tokens(0)._1
   val selfAPT = SELF.tokens(0)._2
@@ -158,6 +159,8 @@
   val selfCreatorDetails = SELF.R8[Coll[Byte]].get
   val selfBountyMetadata = SELF.R9[Coll[Byte]].get
   val selfScript = SELF.propositionBytes
+
+  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
 
   // Validation of the box replication process
   val isSelfReplication = {
@@ -217,25 +220,19 @@
   val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
   val maintainValue = selfValue == OUTPUTS(0).value
 
-  val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
-  
-  val isPayoutToProposalReceiver = {
-    // Judge must provide the chosen proposal in INPUTS(1)
-    val proposalBox = INPUTS(1)
-    val proposalReceiver = proposalBox.R4[Coll[Byte]].get
-    val proposalBountyId = proposalBox.R5[Coll[Byte]].get
-  
-    // Validate the proposal is for the correct bounty
-    val isCorrectBountyId = proposalBountyId == SELF.tokens(0)._1
-  
-    // Validate payout goes to proposal's specified address
-    val isCorrectPayoutAddress = OUTPUTS(1).propositionBytes == proposalReceiver
-  
-    allOf(Coll(
-      isCorrectBountyId,
-      isCorrectPayoutAddress
-    ))
-}
+  val isToBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
+
+    isSamePropBytes
+  }
+
+  val isFromBountyCreatorAddress = {
+    val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, INPUTS(1))
+    val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
+    
+    isSamePropBytes
+  }
 
   // Amount of PFT tokens added to the contract. In case of negative value, means that the token have been extracted.
   val deltaPFTokenAdded = {
@@ -251,13 +248,6 @@
     
     // Return the difference between output tokens and self tokens
     outTokens - selfTokens
-  }
-
-  val minimumContributionReached = {
-    val minimumContributionThreshold = selfMinimumContribution
-    val contributedCounter = selfContributedCounter
-
-    contributedCounter >= minimumContributionThreshold
   }
 
   //  ACTIONS
@@ -322,6 +312,13 @@
 
   // Validation for refunding contributions
   val isRefundTokens = {
+
+    val minimumContributionReached = {
+      val minimumContributionThreshold = selfMinimumContribution
+      val contributedCounter = selfContributedCounter
+
+      contributedCounter >= minimumContributionThreshold
+    }
 
     // > People should be allowed to exchange tokens for ERGs if and only if the deadline has passed and the minimum number of tokens has not been sold.
     val canBeRefund = {
@@ -391,59 +388,95 @@
     ))
   }
 
-  // Validation for claiming bounty reward by solution provider
   val isClaimBountyReward = {
-    // Anyone can claim the bounty reward and send it to the solution provider address.
-    
-    val minerFeeAmount = 1100000  // Pay miner fee with the extracted value allows to claim when solution provider address does not have ergs.
-    val devFee = `+dev_fee+`
-    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { selfValue - OUTPUTS(0).value } else { selfValue }
-    val devFeeAmount = extractedValue * devFee / 100
-    val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
+    val minimumContributionReached = selfContributedCounter >= selfMinimumContribution
 
-    val correctBountyAmount = OUTPUTS(1).value == bountyAmount
-
-    val correctDevFee = {
-      val OUT = OUTPUTS(2)
-
-      val isToDevAddress = {
-          val isSamePropBytes: Boolean = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
-          
-          isSamePropBytes
+    if (OUTPUTS.size < 3) { false } else {
+      // Find proposal boxes matching the proposal contract hash
+      val proposalBoxes = CONTEXT.dataInputs.filter { (box: Box) =>
+        blake2b256(box.propositionBytes) == fromBase16("`+proposal_contract_hash+`")
       }
 
-      val isCorrectDevAmount = OUT.value == devFeeAmount
+      // Check if we have exactly one proposal box
+      val hasValidProposal = proposalBoxes.size == 1
 
-      allOf(Coll(
-        isCorrectDevAmount,
-        isToDevAddress
-      ))
+      // If we have a valid proposal, check all conditions in one place
+      val proposalValid = if (hasValidProposal) {
+        val proposalBox = proposalBoxes(0)
+        
+        // Check all conditions with safe access
+        val hasBountyId = proposalBox.R5[Coll[Byte]].isDefined
+        val matchesBounty = hasBountyId && proposalBox.R5[Coll[Byte]].get == selfId
+        val hasStatus = proposalBox.R8[Int].isDefined
+        val isApproved = hasStatus && proposalBox.R8[Int].get == 1
+        val hasProposerPK = proposalBox.R4[GroupElement].isDefined
+        
+        // All conditions must be true
+        matchesBounty && isApproved && hasProposerPK
+      } else {
+        false
+      }
+
+      // Check payout address is correct
+      val payoutAddressCorrect = if (proposalValid) {
+        val proposalBox = proposalBoxes(0)
+        val proposerPK = proposalBox.R4[GroupElement].get
+        val payoutBox = OUTPUTS(1)
+        
+        val pkBytes = proveDlog(proposerPK).propBytes
+        val payoutBytes = payoutBox.propositionBytes
+        
+        if (payoutBytes(0) == 0) {
+          payoutBytes == pkBytes
+        } else {
+          val offset = if (payoutBytes.size > 127) 3 else 2
+          pkBytes.slice(1, pkBytes.size) == payoutBytes.slice(offset, payoutBytes.size)
+        }
+      } else {
+        false
+      }
+
+      val minerFeeAmount = 100000L 
+      val devFee = `+dev_fee+`
+      val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { 
+        selfValue - OUTPUTS(0).value 
+      } else { 
+        selfValue 
+      }
+      val devFeeAmount = extractedValue * devFee / 100L
+      val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
+
+      val correctBountyAmount = OUTPUTS(1).value == bountyAmount
+
+      val correctDevFee = {
+        val OUT = OUTPUTS(2)
+        val isToDevAddress = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
+        val isCorrectDevAmount = OUT.value == devFeeAmount
+        isToDevAddress && isCorrectDevAmount
+      }
+
+      val endOrReplicate = {
+        val allFundsWithdrawn = extractedValue == selfValue
+        val allTokensWithdrawn = SELF.tokens.size == 1
+        isSelfReplication || (allFundsWithdrawn && allTokensWithdrawn)
+      }
+
+      val constants = 
+        endOrReplicate &&
+        contributedCounterRemainsConstant &&
+        refundCounterRemainsConstant &&
+        auxiliarExchangeCounterRemainsConstant &&
+        APTokenRemainsConstant &&
+        BountyRewardTokenRemainsConstant
+
+      constants &&
+      minimumContributionReached &&
+      proposalValid &&
+      payoutAddressCorrect &&
+      correctDevFee &&
+      correctBountyAmount
     }
-
-    val endOrReplicate = {
-      val allFundsWithdrawn = extractedValue == selfValue
-      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
-
-      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
-    }
-
-    val constants = allOf(Coll(
-      endOrReplicate,                             // Replicate the contract in case of partial withdrawal
-      contributedCounterRemainsConstant,          // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
-      refundCounterRemainsConstant,                       
-      auxiliarExchangeCounterRemainsConstant,   
-      APTokenRemainsConstant,                     // There is no need to modify the contribution token, so it must be constant
-      BountyRewardTokenRemainsConstant           // There is no need to modify the bounty reward token, so it must be constant
-    ))
-
-    allOf(Coll(
-      constants,
-      minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
-      isPayoutToProposalReceiver,                   // Only to the bounty creator address (for now - later this will be to solution provider)
-      correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
-      correctBountyAmount               // Ensures the correct solution provider amount.
-    ))
-  }
+}
 
   // > Bounty creators may withdraw unused reward tokens from the contract at any time.
   val isWithdrawUnusedRewardTokens = {
@@ -471,11 +504,7 @@
 
     allOf(Coll(
       constants,
-      {
-        val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
-        val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
-        isSamePropBytes
-      },
+      isToBountyCreatorAddress,
       deltaPFTokenAdded < 0,  // A negative value means that PFT are extracted.
       onlyUnused  // Ensures that only extracts the token amount that has not been contributed for.
     ))
@@ -496,13 +525,20 @@
     if (INPUTS.size == 1) false  // To avoid access INPUTS(1) when there is no input, this could be resolved using actions.
     else allOf(Coll(
       constants,
-      true,
+      isFromBountyCreatorAddress,   // Ensures that the tokens come from the bounty creator.
       deltaPFTokenAdded > 0   // Ensures that the tokens are added.
     ))
   }
   
   // Exchange APT (token that identifies contributors used as temporary contribution token) with PFT (bounty reward token)
   val isExchangeContributionTokens = {
+
+    val minimumContributionReached = {
+      val minimumContributionThreshold = selfMinimumContribution
+      val contributedCounter = selfContributedCounter
+
+      contributedCounter >= minimumContributionThreshold
+    }
 
     val deltaTemporaryContributionTokenAdded = {
       val selfTCT = SELF.tokens(0)._2
