@@ -54,7 +54,8 @@
 
         isCurrentUserJudge =
             !!currentUserAddress &&
-            !!bounty.content?.judges?.includes(currentUserAddress);
+            Array.isArray(bounty.content?.judges) &&
+            bounty.content.judges.includes(currentUserAddress);
 
         const minErg =
             (bounty.min_submissions * bounty.exchange_rate) / Math.pow(10, 9);
@@ -160,7 +161,8 @@
                 <div
                     class="bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded text-xs flex-shrink-0 self-start sm:self-center"
                 >
-                    🧑‍💻 {actualProposalsCount} Proposal{actualProposalsCount !== 1
+                    🧑‍💻 {actualProposalsCount} Proposal{actualProposalsCount !==
+                    1
                         ? "s"
                         : ""}
                 </div>

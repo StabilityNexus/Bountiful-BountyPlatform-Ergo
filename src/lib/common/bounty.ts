@@ -26,6 +26,7 @@ export interface ConstantContent {
     dev_hash: string;
     dev_fee: number;
     token_id: string;
+    judges?: string[]; 
 }
 
 export interface Bounty {

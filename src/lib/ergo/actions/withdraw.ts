@@ -50,17 +50,17 @@ export async function withdraw(
 
     if (bounty.value > amount) {  // bounty.value represents the current ERG balance plus the minimum box value. Therefore, the maximum probable amount is likely equal to bounty.value minus the minimum box value (managed through the interface).
         const contractOutput = new OutputBuilder(
-            BigInt(bounty.value - amount),
+            (BigInt(bounty.value) - BigInt(amount)).toString(),
             get_address(bounty.constants, bounty.version)    // Address of the project contract
         ).addTokens({
             tokenId: bounty.bounty_id,
-            amount: BigInt(bounty.current_idt_amount)
+            amount: BigInt(bounty.current_idt_amount).toString()
         });
     
         if (bounty.current_pft_amount > 0) {
             contractOutput.addTokens({
                 tokenId: bounty.token_id,
-                amount: BigInt(bounty.current_pft_amount)
+                amount: BigInt(bounty.current_pft_amount).toString()
             });
         }
     
@@ -78,14 +78,14 @@ export async function withdraw(
 
     outputs.push(
         new OutputBuilder(
-            projectAmount,
+            projectAmount.toString(),
             walletPk
         )
     );
 
     outputs.push(
         new OutputBuilder(
-            BigInt(devAmount),
+            BigInt(devAmount).toString(),
             devAddress
         )
     );

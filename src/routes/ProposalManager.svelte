@@ -19,9 +19,11 @@
         hexToErgoAddress,
         extractHexFromBinary,
         parseDeveloperFromRawContent,
-        convertHexToErgoAddress
+        convertHexToErgoAddress,
     } from "$lib/common/proposal";
     import { web_explorer_uri_addr } from "$lib/ergo/envs";
+
+    import { creatorApproveProposal } from "$lib/ergo/actions/approve_proposal";
 
     export let bounty: Bounty;
     export let deadline_passed: boolean = false;
@@ -50,6 +52,7 @@
         boxId: string;
         rawContent: any;
         registers: Record<string, string>;
+        box: any;
     }> = [];
 
     let isCurrentUserJudge = false;
@@ -75,9 +78,147 @@
     }
 
     // Check if current user is a judge
+    // $: if (bounty) {
+    //     isCurrentUserJudge =
+    //         !!$address && !!bounty.content?.judges?.includes($address);
+    // }
+
     $: if (bounty) {
+        // Extract creator address from bounty metadata
+        let creatorAddress = "";
+
+        console.log("Full bounty object:", bounty);
+        console.log("Bounty constants:", bounty.constants);
+        console.log("Raw creator data:", bounty.constants?.creator);
+        console.log("Creator data type:", typeof bounty.constants?.creator);
+
+        try {
+            if (bounty.constants?.creator) {
+                let creatorData = bounty.constants.creator;
+
+                // Log the raw bytes
+                console.log(
+                    "Creator data as bytes:",
+                    Array.from(creatorData).map((c) => c.charCodeAt(0)),
+                );
+
+                // Try multiple approaches
+                console.log("Attempting method 1: Direct sanitization");
+                let attempt1 = sanitizeDeveloperAddress(creatorData);
+                console.log("Method 1 result:", attempt1);
+
+                if (
+                    attempt1 &&
+                    attempt1 !== "Unknown" &&
+                    attempt1 !== "Address parsing error"
+                ) {
+                    creatorAddress = attempt1;
+                } else {
+                    console.log("Attempting method 2: Hex extraction");
+                    const hexValue = extractHexFromBinary(creatorData);
+                    console.log("Extracted hex:", hexValue);
+
+                    if (hexValue && hexValue.length === 66) {
+                        try {
+                            creatorAddress = hexToErgoAddress(hexValue);
+                            console.log(
+                                "Method 2 hex conversion result:",
+                                creatorAddress,
+                            );
+                        } catch (hexError) {
+                            console.error(
+                                "Hex to address conversion failed:",
+                                hexError,
+                            );
+                        }
+                    }
+
+                    if (!creatorAddress) {
+                        console.log(
+                            "Attempting method 3: convertHexToErgoAddress",
+                        );
+                        try {
+                            creatorAddress =
+                                convertHexToErgoAddress(creatorData);
+                            console.log("Method 3 result:", creatorAddress);
+                        } catch (convertError) {
+                            console.error(
+                                "convertHexToErgoAddress failed:",
+                                convertError,
+                            );
+                        }
+                    }
+
+                    if (!creatorAddress) {
+                        console.log(
+                            "Attempting method 4: Check bounty.box for creator info",
+                        );
+                        // Sometimes creator might be in the box itself
+                        if (bounty.box) {
+                            console.log("Bounty box:", bounty.box);
+                            // Check if there's creator info in registers
+                            const registers =
+                                bounty.box.additionalRegisters || {};
+                            console.log("Box registers:", registers);
+
+                            // Try to find creator in any register
+                            for (const [key, value] of Object.entries(
+                                registers,
+                            )) {
+                                if (value && typeof value === "string") {
+                                    const sanitized =
+                                        sanitizeDeveloperAddress(value);
+                                    if (
+                                        sanitized &&
+                                        sanitized !== "Unknown" &&
+                                        sanitized !== "Address parsing error" &&
+                                        sanitized.startsWith("9")
+                                    ) {
+                                        console.log(
+                                            `Found potential creator in register ${key}:`,
+                                            sanitized,
+                                        );
+                                        creatorAddress = sanitized;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!creatorAddress) {
+                        console.log(
+                            "Attempting method 5: Check if data is already an address",
+                        );
+                        // Check if the raw data is already an Ergo address
+                        if (
+                            typeof creatorData === "string" &&
+                            creatorData.startsWith("9") &&
+                            creatorData.length > 40
+                        ) {
+                            creatorAddress = creatorData;
+                            console.log(
+                                "Method 5 - raw data is address:",
+                                creatorAddress,
+                            );
+                        }
+                    }
+                }
+            } else {
+                console.log("No creator data found in bounty.constants");
+            }
+        } catch (e) {
+            console.error("Failed to parse creator details:", e);
+        }
+
+        // Current user can approve if they are the bounty creator
         isCurrentUserJudge =
-            !!$address && !!bounty.content?.judges?.includes($address);
+            !!$address && !!creatorAddress && $address === creatorAddress;
+
+        // Debug logging
+        console.log("Final creator address resolved to:", creatorAddress);
+        console.log("Current user address:", $address);
+        console.log("Is current user judge:", isCurrentUserJudge);
     }
 
     async function loadProposals() {
@@ -107,7 +248,6 @@
                         })
 
                         .map((proposal) => {
-
                             let developer = proposal.developer;
 
                             if (
@@ -163,6 +303,7 @@
                                 boxId: proposal.boxId || "",
                                 rawContent: proposal.rawContent || {},
                                 registers: proposal.registers || {},
+                                box: proposal.box,
                             };
                         })
                         .sort(
@@ -251,44 +392,146 @@
         }
     }
 
-    // Judge functions
-    async function approveProposal(proposalId: string) {
-        if (!bounty || !isCurrentUserJudge) return;
+async function approveProposal(proposalId: string) {
+    console.log("=== APPROVE PROPOSAL DEBUG START ===");
+    console.log("ProposalId:", proposalId);
+    console.log("Bounty exists:", !!bounty);
+    console.log("Is current user judge:", isCurrentUserJudge);
+    console.log("Current address:", $address);
+    
+    // Clear any previous error messages
+    errorMessage = null;
+    
+    if (!bounty) {
+        errorMessage = "No bounty found";
+        console.error("No bounty found");
+        return;
+    }
+    
+    if (!isCurrentUserJudge) {
+        errorMessage = "Only the bounty creator can approve proposals";
+        console.error("User is not the judge. isCurrentUserJudge:", isCurrentUserJudge);
+        return;
+    }
 
-        try {
-            // Replace with actual approval logic
+    const proposal = proposals.find((p) => p.id === proposalId);
+    if (!proposal) {
+        errorMessage = "Proposal not found";
+        console.error("Proposal not found with ID:", proposalId);
+        console.log("Available proposals:", proposals.map(p => p.id));
+        return;
+    }
+    
+    console.log("Found proposal:", proposal);
+
+    // Validate contribution threshold
+    try {
+        const bountyBox = bounty.box as any;
+        console.log("Bounty box:", bountyBox);
+        
+        const countersRaw = bountyBox.R6 || "[0,0,0]";
+        console.log("Counters raw:", countersRaw);
+        
+        const counters = JSON.parse(countersRaw);
+        console.log("Parsed counters:", counters);
+
+        const contributed = BigInt(counters?.[0] || 0);
+        const minimumContribution = BigInt(bountyBox.R5 || "0");
+        
+        console.log("Contributed:", contributed.toString());
+        console.log("Minimum contribution:", minimumContribution.toString());
+
+        if (contributed < minimumContribution) {
+            errorMessage = "Minimum contribution threshold not yet reached";
+            console.error("Contribution threshold not met");
+            return;
+        }
+        
+        console.log("Contribution threshold validation passed");
+    } catch (e) {
+        console.error("Failed to validate contribution threshold:", e);
+        errorMessage = "Failed to validate bounty state";
+        return;
+    }
+
+    if (!$address) {
+        errorMessage = "No wallet address found";
+        console.error("No address found");
+        return;
+    }
+
+    // Set loading state
+    isSubmitting = true;
+    console.log("Setting isSubmitting to true");
+
+    try {
+        const proposalBox = proposal.box;
+        if (!proposalBox) {
+            throw new Error("Proposal box data is missing from the proposal object.");
+        }
+        
+        console.log("Using proposal.box for approval:", proposalBox);
+
+        console.log("=== CALLING creatorApproveProposal ===");
+        console.log("Bounty version:", bounty.version);
+        console.log("Bounty box:", bounty.box);
+        console.log("Creator address:", $address);
+
+        // Call the blockchain function
+        const txId = await creatorApproveProposal(
+            bounty.version,
+            bounty.box as any,
+            proposalBox,
+            $address
+        );
+
+        console.log("Approval transaction result:", txId);
+
+        if (txId) {
+            // Update proposal status locally
             proposals = proposals.map((p) =>
                 p.id === proposalId ? { ...p, status: "approved" } : p,
             );
-        } catch (error) {
-            if (error && typeof error === "object" && "message" in error) {
-                errorMessage =
-                    (error as { message: string }).message ||
-                    "Failed to approve proposal";
-            } else {
-                errorMessage = "Failed to approve proposal";
-            }
+            transactionId = txId;
+            errorMessage = null;
+            console.log("Local state updated successfully");
+        } else {
+            throw new Error("Approval transaction returned no transaction ID");
         }
+        
+    } catch (err) {
+        console.error("Approval error:", err);
+        console.error("Error stack:", (err as Error).stack);
+        errorMessage = (err as any).message || "Failed to approve proposal";
+    } finally {
+        isSubmitting = false;
+        console.log("Setting isSubmitting to false");
+        console.log("Final error message:", errorMessage);
+        console.log("=== APPROVE PROPOSAL DEBUG END ===");
     }
+}
+    // async function rejectProposal(proposalId: string) {
+    //     if (!bounty || !isCurrentUserJudge) return;
 
-    async function rejectProposal(proposalId: string) {
-        if (!bounty || !isCurrentUserJudge) return;
+    //     const proposal = proposals.find(p => p.id === proposalId);
+    //     if (!proposal) return;
 
-        try {
-            // Replace with actual rejection logic
-            proposals = proposals.map((p) =>
-                p.id === proposalId ? { ...p, status: "rejected" } : p,
-            );
-        } catch (error) {
-            if (error && typeof error === "object" && "message" in error) {
-                errorMessage =
-                    (error as { message: string }).message ||
-                    "Failed to reject proposal";
-            } else {
-                errorMessage = "Failed to reject proposal";
-            }
-        }
-    }
+    //     isSubmitting = true;
+    //     errorMessage = null;
+
+    //     try {
+    //         // Call the blockchain reject (off-chain or on-chain)
+    //         await chainRejectProposal(proposal.rawContent as any, "Judge rejected");
+
+    //         proposals = proposals.map(p =>
+    //             p.id === proposalId ? { ...p, status: "rejected" } : p
+    //         );
+    //     } catch (err) {
+    //         errorMessage = (err as any).message || "Failed to reject proposal";
+    //     } finally {
+    //         isSubmitting = false;
+    //     }
+    // }
 
     // Initialize proposals when component loads
     $: if (bounty) {
@@ -336,6 +579,11 @@
 <div class="proposals-section">
     <div class="section-header">
         <h2 class="section-title">Proposals ({proposals.length})</h2>
+        {#if isCurrentUserJudge}
+            <div class="creator-notice">
+                🎯 You are the bounty creator - you can approve proposals
+            </div>
+        {/if}
         {#if $connected && !deadline_passed && !is_max_submissions}
             <button
                 class="submit-btn primary"
@@ -371,13 +619,16 @@
                             <div class="meta-item">
                                 <span class="meta-label">Developer</span>
                                 <a
-                                                    href="{web_explorer_uri_addr}{proposal.developer || "Unknown"}"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    class="judge-link"
-                                                >
-                                                    {truncateAddress(proposal.developer || "Unknown")}
-                                                </a>
+                                    href="{web_explorer_uri_addr}{proposal.developer ||
+                                        'Unknown'}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="judge-link"
+                                >
+                                    {truncateAddress(
+                                        proposal.developer || "Unknown",
+                                    )}
+                                </a>
                             </div>
 
                             <div class="meta-item">
@@ -412,7 +663,9 @@
                                             >Bounty ID:</span
                                         >
                                         <span class="context-value"
-                                            >{truncateAddress(bounty.bounty_id)}</span
+                                            >{truncateAddress(
+                                                bounty.bounty_id,
+                                            )}</span
                                         >
                                     </div>
                                     {#if bounty.content?.description}
@@ -436,15 +689,17 @@
                             <button
                                 class="action-btn approve"
                                 on:click={() => approveProposal(proposal.id)}
+                                disabled={isSubmitting}
                             >
-                                Approve
+                                {isSubmitting
+                                    ? "Processing..."
+                                    : "Approve Proposal"}
                             </button>
-                            <button
-                                class="action-btn reject"
-                                on:click={() => rejectProposal(proposal.id)}
-                            >
-                                Reject
-                            </button>
+                            <!-- Note: Rejection would be off-chain or through a separate mechanism -->
+                        </div>
+                    {:else if proposal.status === "approved"}
+                        <div class="approval-notice">
+                            ✅ Approved by bounty creator
                         </div>
                     {/if}
                 </div>

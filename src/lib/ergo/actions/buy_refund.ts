@@ -32,16 +32,16 @@ export async function buy_refund(
 
     // Building the project output
     let output = new OutputBuilder(
-        BigInt(bounty.value) + BigInt(ergo_amount),
+        (BigInt(bounty.value) + BigInt(ergo_amount)).toString(),
         get_address(bounty.constants, bounty.version)
     )
     .addTokens({
         tokenId: bounty.bounty_id,
-        amount: BigInt(bounty.current_idt_amount - token_amount)
+        amount: BigInt(bounty.current_idt_amount - token_amount).toString()
     })
     .addTokens({
         tokenId: bounty.token_id,
-        amount: BigInt(bounty.current_pft_amount)
+        amount: BigInt(bounty.current_pft_amount).toString()
     });
 
     let total_submissions = BigInt(token_amount > 0 ? bounty.total_submissions + token_amount : bounty.total_submissions);
@@ -61,7 +61,7 @@ export async function buy_refund(
     if (token_amount > 0) {
         outputs.push(
             new OutputBuilder(
-                SAFE_MIN_BOX_VALUE,
+                SAFE_MIN_BOX_VALUE.toString(),
                 walletPk
             )
             .addTokens({

@@ -46,12 +46,12 @@ export async function rebalance(
 
     // Building the project output
     let contract_output = new OutputBuilder(
-        BigInt(bounty.value),
+        BigInt(bounty.value).toString(),
         get_address(bounty.constants, bounty.version)
     )
     .addTokens({
         tokenId: bounty.bounty_id,
-        amount: BigInt(bounty.current_idt_amount)
+        amount: BigInt(bounty.current_idt_amount).toString()
     });
 
     console.log("PFT current amount " + bounty.current_pft_amount / Math.pow(10, bounty.token_details.decimals));
@@ -84,12 +84,12 @@ export async function rebalance(
     if (token_amount < 0) {
         outputs.push(
             new OutputBuilder(
-                SAFE_MIN_BOX_VALUE,
+                SAFE_MIN_BOX_VALUE.toString(),
                 walletPk
             )
             .addTokens({
                 tokenId: bounty.token_id,
-                amount: BigInt((-1) * token_amount)
+                amount: BigInt((-1) * token_amount).toString()
             })
         );
     }
