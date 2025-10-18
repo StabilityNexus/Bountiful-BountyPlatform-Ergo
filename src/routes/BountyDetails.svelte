@@ -1,3 +1,13 @@
+<script lang="ts" context="module">
+    declare const ergo: {
+        get_change_address(): Promise<string>;
+        get_utxos(): Promise<any[]>;
+        get_current_height(): Promise<number>;
+        sign_tx(tx: any): Promise<any>;
+        submit_tx(tx: any): Promise<string>;
+    };
+</script>
+
 <script lang="ts">
     import {
         type Bounty,
@@ -33,6 +43,23 @@
     import { get } from "svelte/store";
     import { onDestroy } from "svelte";
     import { onMount } from "svelte";
+    import { judge_detail} from "$lib/common/store";
+    import { fetchJudgeProofByAddress } from "$lib/ergo/reputation/fetch";
+    import { truncateAddress } from "$lib/common/utils";
+
+    async function viewJudge(judgeAddress: string) {
+        // const ergo = get(platform)?.ergo;
+        if (!ergo) {
+            alert("Please connect your wallet first.");
+            return;
+        }
+        const proof = await fetchJudgeProofByAddress(judgeAddress, ergo);
+        if (proof) {
+            judge_detail.set({ proof, address: judgeAddress });
+        } else {
+            alert("Could not find a judge profile for this address.");
+        }
+    }
 
     export let bountyId: string = "";
 
@@ -95,13 +122,6 @@
     let maxWithdrawErgAmount = 0; // Maximum amount bounty owner can withdraw
 
     let isCurrentUserJudge = false;
-
-    function truncateAddress(address: string): string {
-        if (!address) return "";
-        return address.length > 10
-            ? `${address.slice(0, 6)}...${address.slice(-4)}`
-            : address;
-    }
 
     $: if (bounty) {
         submit_info =
@@ -639,14 +659,13 @@
                                     {#if (bounty.content?.judges?.length ?? 0) > 0}
                                         <span class="value">
                                             {#each bounty.content.judges ?? [] as judge, index (judge)}
-                                                <a
-                                                    href="{web_explorer_uri_addr}{judge}"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                <button
+                                                    on:click={() =>
+                                                        viewJudge(judge)}
                                                     class="judge-link"
                                                 >
                                                     {truncateAddress(judge)}
-                                                </a>
+                                                </button>
                                                 {index <
                                                 (bounty.content.judges ?? [])
                                                     .length -

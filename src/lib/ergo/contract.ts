@@ -140,7 +140,7 @@ function generate_contract_v1_0(owner_addr: string, dev_fee_contract_bytes_hash:
 // ===== Helper Functions ===== //
 // None
 
-def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
+  def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
     // APT amount that serves as temporary contribution token that is currently on the contract available to exchange.
 
     val bounty_reward_token_amount = if (contract.tokens.size == 1) 0L else contract.tokens(1)._2
@@ -149,9 +149,9 @@ def temporaryContributionTokenAmountOnContract(contract: Box): Long = {
     val exchanged                  = contract.R6[Coll[Long]].get(2)  // If the exchanged APT -> PFT amount is not accounted for, it will result in double-counting the contributed amount.
 
     bounty_reward_token_amount - contributed + refunded + exchanged
-}
+  }
 
-def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
+  def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
 
     val prop: SigmaProp = propAndBox._1
     val box: Box = propAndBox._2
@@ -170,7 +170,8 @@ def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
         (propBytes.slice(1, propBytes.size) == treeBytes.slice(offset, treeBytes.size))
 
     }
-}
+
+  }
 
   val selfId = SELF.tokens(0)._1
   val selfAPT = SELF.tokens(0)._2
@@ -186,7 +187,7 @@ def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
   val selfScript = SELF.propositionBytes
 
   val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
-
+  
   // Validation of the box replication process
   val isSelfReplication = {
 
@@ -244,7 +245,7 @@ def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
   val refundCounterRemainsConstant = selfRefundCounter == OUTPUTS(0).R6[Coll[Long]].get(1)
   val auxiliarExchangeCounterRemainsConstant = selfAuxiliarExchangeCounter == OUTPUTS(0).R6[Coll[Long]].get(2)
   val maintainValue = selfValue == OUTPUTS(0).value
-
+  
   val isToBountyCreatorAddress = {
     val propAndBox: (SigmaProp, Box) = (bountyCreatorAddr, OUTPUTS(1))
     val isSamePropBytes: Boolean = isSigmaPropEqualToBoxProp(propAndBox)
@@ -413,94 +414,93 @@ def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
     ))
   }
 
-  val isClaimBountyReward = {
-    val minimumContributionReached = selfContributedCounter >= selfMinimumContribution
-
-    if (OUTPUTS.size < 3) { false } else {
-      // Find proposal boxes matching the proposal contract hash
-      val proposalBoxes = CONTEXT.dataInputs.filter { (box: Box) =>
-        blake2b256(box.propositionBytes) == fromBase16("`+proposal_contract_hash+`")
-      }
-
-      // Check if we have exactly one proposal box
-      val hasValidProposal = proposalBoxes.size == 1
-
-      // If we have a valid proposal, check all conditions in one place
-      val proposalValid = if (hasValidProposal) {
-        val proposalBox = proposalBoxes(0)
-        
-        // Check all conditions with safe access
-        val hasBountyId = proposalBox.R5[Coll[Byte]].isDefined
-        val matchesBounty = hasBountyId && proposalBox.R5[Coll[Byte]].get == selfId
-        val hasStatus = proposalBox.R8[Int].isDefined
-        val isApproved = hasStatus && proposalBox.R8[Int].get == 1
-        val hasProposerPK = proposalBox.R4[GroupElement].isDefined
-        
-        // All conditions must be true
-        matchesBounty && isApproved && hasProposerPK
-      } else {
-        false
-      }
-
-      // Check payout address is correct
-      val payoutAddressCorrect = if (proposalValid) {
-        val proposalBox = proposalBoxes(0)
-        val proposerPK = proposalBox.R4[GroupElement].get
-        val payoutBox = OUTPUTS(1)
-        
-        val pkBytes = proveDlog(proposerPK).propBytes
-        val payoutBytes = payoutBox.propositionBytes
-        
-        if (payoutBytes(0) == 0) {
-          payoutBytes == pkBytes
-        } else {
-          val offset = if (payoutBytes.size > 127) 3 else 2
-          pkBytes.slice(1, pkBytes.size) == payoutBytes.slice(offset, payoutBytes.size)
-        }
-      } else {
-        false
-      }
-
-      val minerFeeAmount = 100000L 
-      val devFee = `+dev_fee+`
-      val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { 
-        selfValue - OUTPUTS(0).value 
-      } else { 
-        selfValue 
-      }
-      val devFeeAmount = extractedValue * devFee / 100L
-      val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
-
-      val correctBountyAmount = OUTPUTS(1).value == bountyAmount
-
-      val correctDevFee = {
-        val OUT = OUTPUTS(2)
-        val isToDevAddress = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
-        val isCorrectDevAmount = OUT.value == devFeeAmount
-        isToDevAddress && isCorrectDevAmount
-      }
-
-      val endOrReplicate = {
-        val allFundsWithdrawn = extractedValue == selfValue
-        val allTokensWithdrawn = SELF.tokens.size == 1
-        isSelfReplication || (allFundsWithdrawn && allTokensWithdrawn)
-      }
-
-      val constants = 
-        endOrReplicate &&
-        contributedCounterRemainsConstant &&
-        refundCounterRemainsConstant &&
-        auxiliarExchangeCounterRemainsConstant &&
-        APTokenRemainsConstant &&
-        BountyRewardTokenRemainsConstant
-
-      constants &&
-      minimumContributionReached &&
-      proposalValid &&
-      payoutAddressCorrect &&
-      correctDevFee &&
-      correctBountyAmount
+  val isPayoutToApprovedProposal = {
+    val approvedProposals = CONTEXT.dataInputs.filter { (box: Box) =>
+      blake2b256(box.propositionBytes) == fromBase16("`+proposal_contract_hash+`") &&
+      box.R5[Coll[Byte]].get == selfId &&
+      box.R8[Int].get == 1
     }
+
+    if (approvedProposals.size == 1) {
+      val proposalBox = approvedProposals(0)
+      val proposerPK = proposalBox.R4[GroupElement].get
+
+      val correctPayoutAddress = {
+        val propAndBox = (sigmaProp(proveDlog(proposerPK)), OUTPUTS(1))
+        isSigmaPropEqualToBoxProp(propAndBox)
+      }
+
+      correctPayoutAddress
+    } else {
+      false
+    }
+  }
+
+// Fixed version of isClaimBountyReward with proper output checks
+val isClaimBountyReward = {
+
+  val minimumContributionReached = {
+    val minimumContributionThreshold = selfMinimumContribution
+    val contributedCounter = selfContributedCounter
+
+    contributedCounter >= minimumContributionThreshold
+  }
+
+  // First check if we have enough outputs for this action
+  if (OUTPUTS.size < 3) {
+    false // Not a claim bounty reward transaction
+  } else {
+    // Anyone can claim the bounty reward and send it to the solution provider address.
+    
+    val minerFeeAmount = 1100000  // Pay miner fee with the extracted value allows to claim when solution provider address does not have ergs.
+    val devFee = `+dev_fee+`
+    val extractedValue: Long = if (selfScript == OUTPUTS(0).propositionBytes) { selfValue - OUTPUTS(0).value } else { selfValue }
+    val devFeeAmount = extractedValue * devFee / 100
+    val bountyAmount = extractedValue - devFeeAmount - minerFeeAmount
+
+    val correctBountyAmount = OUTPUTS(1).value == bountyAmount
+
+    val correctDevFee = {
+      val OUT = OUTPUTS(2)
+
+      val isToDevAddress = {
+          val isSamePropBytes: Boolean = fromBase16("`+dev_fee_contract_bytes_hash+`") == blake2b256(OUT.propositionBytes)
+          
+          isSamePropBytes
+      }
+
+      val isCorrectDevAmount = OUT.value == devFeeAmount
+
+      allOf(Coll(
+        isCorrectDevAmount,
+        isToDevAddress
+      ))
+    }
+
+    val endOrReplicate = {
+      val allFundsWithdrawn = extractedValue == selfValue
+      val allTokensWithdrawn = SELF.tokens.size == 1 // There is no PFT in the contract, which means that all the PFT tokens have been exchanged for their respective APTs.
+
+      isSelfReplication || allFundsWithdrawn && allTokensWithdrawn
+    }
+
+    val constants = allOf(Coll(
+      endOrReplicate,                             // Replicate the contract in case of partial withdrawal
+      contributedCounterRemainsConstant,          // Any of the counter needs to be incremented, so all of them (contributed, refund and exchange) need to remain constants.
+      refundCounterRemainsConstant,                       
+      auxiliarExchangeCounterRemainsConstant,   
+      APTokenRemainsConstant,                     // There is no need to modify the contribution token, so it must be constant
+      BountyRewardTokenRemainsConstant           // There is no need to modify the bounty reward token, so it must be constant
+    ))
+
+    allOf(Coll(
+      constants,
+      minimumContributionReached,                 // Solution providers can claim bounty if and only if the minimum contribution has been reached.
+      isPayoutToApprovedProposal,                   // Only to the bounty creator address (for now - later this will be to solution provider)
+      correctDevFee,                              // Ensures that the dev fee amount and dev address are correct
+      correctBountyAmount                         // Ensures the correct solution provider amount.
+    ))
+  }
 }
 
   // > Bounty creators may withdraw unused reward tokens from the contract at any time.
@@ -625,6 +625,7 @@ def isSigmaPropEqualToBoxProp(propAndBox: (SigmaProp, Box)): Boolean = {
     isWithdrawUnusedRewardTokens,
     isAddRewardTokens,
     isExchangeContributionTokens
+    // isCreatorApproveProposal - COMMENTED OUT FOR TESTING
   ))
 
   // Validates that the contract was built correctly. Otherwise, it cannot be used.
@@ -777,6 +778,186 @@ export function mint_contract_address(constants: ConstantContent, version: contr
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to generate mint contract details: ${errorMessage}`);
     }
+}
+
+
+// --- Reputation System Contracts ---
+
+const digitalPublicGoodContract = `{
+  val successorOutputs = OUTPUTS.filter { (box: Box) =>
+    box.tokens.size > 0 && box.tokens(0)._1 == SELF.tokens(0)._1
+  }
+  if (successorOutputs.size == 1) {
+    val successor = successorOutputs(0)
+    val registersAreImmutable = (
+      successor.R4[Coll[Byte]] == SELF.R4[Coll[Byte]] &&
+      successor.R5[Coll[Byte]] == SELF.R5[Coll[Byte]] &&
+      successor.R6[Coll[Byte]] == SELF.R6[Coll[Byte]] &&
+      successor.R7[Boolean] == SELF.R7[Boolean] &&
+      successor.R8[Coll[Byte]] == SELF.R8[Coll[Byte]] &&
+      successor.R9[Coll[Byte]] == SELF.R9[Coll[Byte]]
+    )
+    val dataIsImmutable = (
+      successor.propositionBytes == SELF.propositionBytes &&
+      successor.tokens(0) == SELF.tokens(0) &&
+      registersAreImmutable
+    )
+    val canOnlyAddErgs = successor.value >= SELF.value
+    sigmaProp(dataIsImmutable && canOnlyAddErgs)
+  } else {
+    sigmaProp(false)
+  }
+}`;
+
+const reputationTokenContract = (digitalPublicGoodHash: string) => `{
+  val DIGITAL_PUBLIC_GOOD = fromBase16("${digitalPublicGoodHash}")
+  val ownerSignedPath = {
+    val isOwner = INPUTS.exists { (b: Box) => blake2b256(b.propositionBytes) == SELF.R7[Coll[Byte]].get }
+    if (isOwner) {
+      val r6Tuple = SELF.R6[(Boolean, Long)].get
+      val isLocked = r6Tuple._1
+      val totalSupply = r6Tuple._2
+      val repTokenId = SELF.tokens(0)._1
+      val repBoxesOnDataInputs = CONTEXT.dataInputs.filter { (b: Box) =>
+        blake2b256(b.propositionBytes) == blake2b256(SELF.propositionBytes) &&
+        b.tokens.size > 0 && b.tokens(0)._1 == repTokenId &&
+        b.R6[(Boolean, Long)].get._2 == totalSupply &&
+        b.R7[Coll[Byte]].get == SELF.R7[Coll[Byte]].get &&
+        b.R4[Coll[Byte]].isDefined &&
+        b.R5[Coll[Byte]].isDefined &&
+        b.R8[Boolean].isDefined
+      }
+      val repBoxesOnInputs = INPUTS.filter { (b: Box) =>
+        blake2b256(b.propositionBytes) == blake2b256(SELF.propositionBytes) &&
+        b.tokens.size > 0 && b.tokens(0)._1 == repTokenId &&
+        b.R6[(Boolean, Long)].get._2 == totalSupply &&
+        b.R7[Coll[Byte]].get == SELF.R7[Coll[Byte]].get &&
+        b.R4[Coll[Byte]].isDefined &&
+        b.R5[Coll[Byte]].isDefined &&
+        b.R8[Boolean].isDefined
+      }
+      val repBoxesOnOutputs = OUTPUTS.filter { (b: Box) =>
+        blake2b256(b.propositionBytes) == blake2b256(SELF.propositionBytes) &&
+        b.tokens.size > 0 && b.tokens(0)._1 == repTokenId &&
+        b.R6[(Boolean, Long)].get._2 == totalSupply &&
+        b.R7[Coll[Byte]].get == SELF.R7[Coll[Byte]].get &&
+        b.R4[Coll[Byte]].isDefined &&
+        b.R5[Coll[Byte]].isDefined &&
+        b.R8[Boolean].isDefined
+      }
+      val correctManagedSupply = {
+        val dataInputsAmount = repBoxesOnDataInputs.fold(0L, { (sum: Long, b: Box) => sum + b.tokens(0)._2 })
+        val inputsAmount = repBoxesOnInputs.fold(0L, { (sum: Long, b: Box) => sum + b.tokens(0)._2 })
+        val outputsAmount = repBoxesOnOutputs.fold(0L, { (sum: Long, b: Box) => sum + b.tokens(0)._2 })
+        val valuePreserved = {
+          val secondaryInputTokens = repBoxesOnInputs.flatMap({ (b: Box) =>
+            if (b.tokens.size > 1) { b.tokens.slice(1, b.tokens.size) } else { Coll[(Coll[Byte], Long)]() }
+          })
+          val secondaryOutputTokens = repBoxesOnOutputs.flatMap({ (b: Box) =>
+            if (b.tokens.size > 1) { b.tokens.slice(1, b.tokens.size) } else { Coll[(Coll[Byte], Long)]() }
+          })
+          val uniqueTokenIds = secondaryInputTokens.fold(Coll[Coll[Byte]](), { (acc: Coll[Coll[Byte]], t: (Coll[Byte], Long)) =>
+            if (acc.exists({ (x: Coll[Byte]) => x == t._1 })) acc else acc.append(Coll(t._1))
+          })
+          uniqueTokenIds.forall({ (tokenId: Coll[Byte]) =>
+            val totalIn = secondaryInputTokens
+              .filter({ (t: (Coll[Byte], Long)) => t._1 == tokenId })
+              .fold(0L, { (sum: Long, t: (Coll[Byte], Long)) => sum + t._2 })
+            val totalOut = secondaryOutputTokens
+              .filter({ (t: (Coll[Byte], Long)) => t._1 == tokenId })
+              .fold(0L, { (sum: Long, t: (Coll[Byte], Long)) => sum + t._2 })
+            totalOut >= totalIn
+          })
+        }
+        (inputsAmount + dataInputsAmount) == totalSupply && inputsAmount == outputsAmount && valuePreserved
+      }
+      val outputsValid = repBoxesOnOutputs.forall { (x: Box) =>
+        {
+            val typeTokenIdToCheck: Coll[Byte] = SELF.R4[Coll[Byte]].get
+            val availableTypeTokenIds: Coll[Coll[Byte]] = CONTEXT.dataInputs.filter { (b: Box) =>
+              blake2b256(b.propositionBytes) == DIGITAL_PUBLIC_GOOD &&
+              b.creationInfo._1 < CONTEXT.HEIGHT
+            }.map { (b: Box) => b.tokens(0)._1 }
+            val typeExists = availableTypeTokenIds.exists { (id: Coll[Byte]) => id == typeTokenIdToCheck }
+            val uniqueInDataInputs = repBoxesOnDataInputs.forall { (d: Box) =>
+                (d.R4[Coll[Byte]].get, d.R5[Coll[Byte]].get) != (x.R4[Coll[Byte]].get, x.R5[Coll[Byte]].get)
+            }
+            val uniqueInOutputs = repBoxesOnOutputs.forall { (otherOut: Box) =>
+                (otherOut.id == x.id) ||
+                ((otherOut.R4[Coll[Byte]].get, otherOut.R5[Coll[Byte]].get) != (x.R4[Coll[Byte]].get, x.R5[Coll[Byte]].get))
+            }
+            typeExists && uniqueInDataInputs && uniqueInOutputs
+        }
+      }
+      val correctLock =  {
+        if (isLocked) {
+          repBoxesOnOutputs.exists { (x: Box) => {
+            x.tokens(0)._2 >= SELF.tokens(0)._2 &&
+            x.R4[Coll[Byte]].get == SELF.R4[Coll[Byte]].get &&
+            x.R5[Coll[Byte]].get == SELF.R5[Coll[Byte]].get &&
+            x.R6[(Boolean, Long)].get._1 == true &&
+            x.R9[Coll[Byte]].get == SELF.R9[Coll[Byte]].get
+          }}
+        }
+        else { true }
+      }
+      correctManagedSupply && outputsValid && correctLock
+    } 
+    else { false }
+  }
+  val publicTopUpPath = {
+    val successorOutputs = OUTPUTS.filter { (box: Box) =>
+      box.propositionBytes == SELF.propositionBytes &&
+      box.tokens.size > 0 &&
+      box.tokens(0)._1 == SELF.tokens(0)._1
+    }
+    if (successorOutputs.size == 1) {
+      val successor = successorOutputs(0)
+      val registersAreImmutable = (
+        successor.R4[Coll[Byte]] == SELF.R4[Coll[Byte]] &&
+        successor.R5[Coll[Byte]] == SELF.R5[Coll[Byte]] &&
+        successor.R6[(Boolean, Long)] == SELF.R6[(Boolean, Long)] &&
+        successor.R7[Coll[Byte]] == SELF.R7[Coll[Byte]] &&
+        successor.R8[Boolean] == SELF.R8[Boolean] &&
+        successor.R9[Coll[Byte]] == SELF.R9[Coll[Byte]]
+      )
+      val tokensAreImmutable = successor.tokens == SELF.tokens
+      val canOnlyAddErgs = successor.value >= SELF.value
+      registersAreImmutable && tokensAreImmutable && canOnlyAddErgs
+    } else {
+      false
+    }
+  }
+  sigmaProp(ownerSignedPath || publicTopUpPath)
+}`;
+
+export function getDigitalPublicGoodTemplateHash(): string {
+    const ergoTree = compile(digitalPublicGoodContract, { version: 1, network: network_id });
+    return hex.encode(sha256(ergoTree.template.toBytes()));
+}
+
+function getReputationProofErgoTree(digitalPublicGoodHash: string) {
+    const contract = reputationTokenContract(digitalPublicGoodHash);
+    return compile(contract, { version: 1, network: network_id });
+}
+
+export function getReputationProofAddress(): string {
+    const dpgHash = getDigitalPublicGoodTemplateHash();
+    const ergoTree = getReputationProofErgoTree(dpgHash);
+    const network = network_id === "mainnet" ? Network.Mainnet : Network.Testnet;
+    return ergoTree.toAddress(network).toString();
+}
+
+export function getReputationProofErgoTreeHex(): string {
+    const dpgHash = getDigitalPublicGoodTemplateHash();
+    const ergoTree = getReputationProofErgoTree(dpgHash);
+    return ergoTree.toHex();
+}
+
+export function getReputationProofTemplateHash(): string {
+    const dpgHash = getDigitalPublicGoodTemplateHash();
+    const ergoTree = getReputationProofErgoTree(dpgHash);
+    return hex.encode(sha256(ergoTree.template.toBytes()));
 }
 
 // If you need both address and ergoTree elsewhere, create a separate function:

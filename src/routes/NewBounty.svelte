@@ -1,3 +1,13 @@
+<script lang="ts" context="module">
+    declare const ergo: {
+        get_change_address(): Promise<string>;
+        get_utxos(): Promise<any[]>;
+        get_current_height(): Promise<number>;
+        sign_tx(tx: any): Promise<any>;
+        submit_tx(tx: any): Promise<string>;
+    };
+</script>
+
 <script lang="ts">
   import { block_to_date, time_to_block } from "$lib/common/countdown";
   import { explorer_uri, web_explorer_uri_tx } from "$lib/ergo/envs";
@@ -8,8 +18,11 @@
   import { Input } from "$lib/components/ui/input";
   import * as Select from "$lib/components/ui/select";
   import { get } from "svelte/store";
-  import { user_tokens } from "$lib/common/store";
+  import { user_tokens, judges } from "$lib/common/store";
   import { onMount } from "svelte";
+  import { fetchAllJudges } from "$lib/ergo/reputation/fetch";
+  import { goto } from "$app/navigation";
+  import { truncateAddress } from "$lib/common/utils";
 
   // Constants
   const MIN_ERG_AMOUNT = 0.001;
@@ -48,6 +61,8 @@
   // New judge address field
   let judgeAddresses: string[] = [];
   let newJudgeAddress: string = "";
+  let selectedJudgeId: string | null = null;
+  let selectedDropdownAddress: string = "";
 
   let transactionId: string | null = null;
   let errorMessage: string | null = null;
@@ -425,6 +440,15 @@
       await getErgBalance();
       await getUserTokens();
       await getCurrentUserAddress(); // Get current user address and set as default judge
+      try {
+        if (!ergo) {
+          return;
+        }
+        await fetchAllJudges(ergo, true); // Force fetch on mount
+      } catch (e: any) {
+        console.error("Failed to fetch judges:", e);
+        errorMessage = "Could not load the list of judges. Please try again later.";
+      }
     } else {
       console.log(
         "onMount: Platform not ready, skipping blockchain data retrieval",
@@ -615,12 +639,64 @@
           <span class="text-orange-400">*</span>
         </Label>
 
+        <!-- Judge selection dropdown -->
+        <div class="flex gap-2 mb-2">
+          <select
+            class="w-full p-2 border border-orange-500/20 focus:border-orange-500/40 focus:ring-orange-500/20 focus:ring-1 rounded-md bg-background text-foreground"
+            bind:value={selectedDropdownAddress}
+            on:change={(e) => {
+              const selectedIndex = e.currentTarget.selectedIndex;
+              if (selectedIndex > 0) {
+                  const selectedOption = e.currentTarget.options[selectedIndex];
+                  selectedJudgeId = selectedOption.dataset.id ?? null;
+              } else {
+                  selectedJudgeId = null;
+                  selectedDropdownAddress = "";
+              }
+            }}
+          >
+            <option value="" disabled>Select a judge from the list</option>
+            {#each Array.from($judges.data.values()) as proof (proof.token_id)}
+              {@const address = (proof.current_boxes[0]?.box as any)?.address}
+              {#if address}
+                <option value={address} data-id={proof.token_id}>
+                  {truncateAddress(address)}
+                </option>
+              {/if}
+            {/each}
+          </select>
+          <Button
+            type="button"
+            on:click={() => {
+                if(selectedDropdownAddress) {
+                    newJudgeAddress = selectedDropdownAddress;
+                }
+            }}
+            disabled={!selectedDropdownAddress}
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+          >
+            Use
+          </Button>
+          <Button
+            type="button"
+            on:click={() => {
+                if(selectedJudgeId) {
+                    goto(`/judges/${selectedJudgeId}`);
+                }
+            }}
+            disabled={!selectedJudgeId}
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+          >
+            View
+          </Button>
+        </div>
+
         <!-- Add new judge input -->
         <div class="flex gap-2 mb-2">
           <Input
             type="text"
             bind:value={newJudgeAddress}
-            placeholder="Enter judge's Ergo address"
+            placeholder="Or enter judge's Ergo address manually"
             class="flex-1 border-orange-500/20 focus:border-orange-500/40 focus:ring-orange-500/20 focus:ring-1"
           />
           <Button

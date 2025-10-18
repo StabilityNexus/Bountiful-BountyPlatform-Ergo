@@ -18,3 +18,10 @@ export async function sha256(input: string): Promise<string> {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     return arrayBufferToHex(hashBuffer);
 }
+
+export function truncateAddress(address: string): string {
+    if (!address) return "";
+    return address.length > 10
+        ? `${address.slice(0, 6)}...${address.slice(-4)}`
+        : address;
+}
