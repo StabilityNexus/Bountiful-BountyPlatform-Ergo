@@ -1,11 +1,11 @@
 <script lang="ts" context="module">
-    declare const ergo: {
-        get_change_address(): Promise<string>;
-        get_utxos(): Promise<any[]>;
-        get_current_height(): Promise<number>;
-        sign_tx(tx: any): Promise<any>;
-        submit_tx(tx: any): Promise<string>;
-    };
+  declare const ergo: {
+    get_change_address(): Promise<string>;
+    get_utxos(): Promise<any[]>;
+    get_current_height(): Promise<number>;
+    sign_tx(tx: any): Promise<any>;
+    submit_tx(tx: any): Promise<string>;
+  };
 </script>
 
 <script lang="ts">
@@ -23,6 +23,18 @@
   import { fetchAllJudges } from "$lib/ergo/reputation/fetch";
   import { goto } from "$app/navigation";
   import { truncateAddress } from "$lib/common/utils";
+  import { blake2b } from "blakejs";
+
+  // Load Fleet SDK dynamically if not available
+  if (typeof window !== "undefined" && !(window as any).FleetSDK) {
+    const script = document.createElement("script");
+    script.src =
+      "https://cdn.jsdelivr.net/npm/@fleet-sdk/crypto@0.1.3/dist/index.umd.js";
+    script.onload = () => {
+      console.log("Fleet SDK loaded successfully");
+    };
+    document.head.appendChild(script);
+  }
 
   // Constants
   const MIN_ERG_AMOUNT = 0.001;
@@ -58,11 +70,10 @@
   let bountyImage: string = "";
   let bountyLink: string = "";
 
-  // New judge address field
-  let judgeAddresses: string[] = [];
-  let newJudgeAddress: string = "";
+  let judgeTokenIds: string[] = [];
+  let newJudgeTokenId: string = "";
   let selectedJudgeId: string | null = null;
-  let selectedDropdownAddress: string = "";
+  let selectedDropdownTokenId: string = "";
 
   let transactionId: string | null = null;
   let errorMessage: string | null = null;
@@ -76,49 +87,126 @@
     decimals: number;
   }> = [];
 
-  // Function to add judge
-  function addJudge(): void {
-    if (newJudgeAddress && isValidErgoAddress(newJudgeAddress)) {
-      if (!judgeAddresses.includes(newJudgeAddress)) {
-        judgeAddresses = [...judgeAddresses, newJudgeAddress];
-        newJudgeAddress = "";
-      }
-    }
-  }
-
-  // Function to remove judge
-  function removeJudge(index: number): void {
-    judgeAddresses = judgeAddresses.filter((_, i) => i !== index);
-  }
-
-  // Address validation function
-  function isValidErgoAddress(address: string): boolean {
-    if (!address) return false;
-    // Basic Ergo address validation - starts with 9 and has proper length
-    const mainnetRegex = /^9[1-9A-HJ-NP-Za-km-z]{50,}$/;
-    const testnetRegex = /^3[1-9A-HJ-NP-Za-km-z]{50,}$/;
-    return mainnetRegex.test(address) || testnetRegex.test(address);
-  }
-
   // Get current user's address for default judge
   let currentUserAddress: string = "";
 
-  async function getCurrentUserAddress(): Promise<void> {
-    if (!platform || !platformInitialized) {
-      console.log(
-        "getCurrentUserAddress: No platform available or not initialized",
-      );
+  // Address validation function
+  function isValidTokenId(tokenId: string): boolean {
+    if (!tokenId) return false;
+    // Ergo token IDs are 64 character hex strings
+    return /^[a-fA-F0-9]{64}$/.test(tokenId);
+  }
+
+  // Function to add judge
+  function addJudge(): void {
+    if (newJudgeTokenId && newJudgeTokenId.trim()) {
+      if (!judgeTokenIds.includes(newJudgeTokenId)) {
+        judgeTokenIds = [...judgeTokenIds, newJudgeTokenId];
+        newJudgeTokenId = "";
+      }
+    }
+  }
+
+  // Function to remove a judge by index
+  function removeJudge(index: number): void {
+    if (index < 0 || index >= judgeTokenIds.length) {
       return;
     }
+    // Create a new array without the removed judge to trigger reactivity
+    judgeTokenIds = judgeTokenIds.filter((_, i) => i !== index);
+
+    // If the removed judge was selected in dropdown, clear selection
+    if (
+      selectedDropdownTokenId &&
+      selectedDropdownTokenId === judgeTokenIds[index]
+    ) {
+      selectedDropdownTokenId = "";
+      selectedJudgeId = null;
+    }
+  }
+
+  // Helper function to compute blake2b256 hash
+  function computeBlake2b256(hexString: string): string {
+    try {
+      const bytes = new Uint8Array(
+        hexString.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+      );
+      const hash = blake2b(bytes, undefined, 32);
+      const hashHex = Array.from(hash)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      return hashHex;
+    } catch (error) {
+      console.error("Failed to compute blake2b256:", error);
+      throw error;
+    }
+  }
+
+  async function getCurrentUserJudgeToken(): Promise<void> {
+    if (!platformInitialized) {
+      console.log("Platform not initialized");
+      return;
+    }
+
     try {
       currentUserAddress = await platform.get_address();
-      // Set current user as default judge if no judges are specified
-      if (judgeAddresses.length === 0) {
-        judgeAddresses = [currentUserAddress];
-      }
+
+      console.log("=== JUDGE TOKEN CHECK ===");
       console.log("Current user address:", currentUserAddress);
+
+      let userErgoTreeHash: string | null = null;
+
+      try {
+        const utxos = await ergo.get_utxos();
+        console.log("Fetched", utxos.length, "UTXOs");
+
+        if (utxos && utxos.length > 0) {
+          const firstUtxo = utxos[0];
+          const fullErgoTree = firstUtxo.propositionBytes || firstUtxo.ergoTree;
+
+          if (fullErgoTree) {
+            console.log("ErgoTree:", fullErgoTree.substring(0, 20) + "...");
+
+            // Hash the FULL ergoTree (including 0008cd prefix for P2PK)
+            userErgoTreeHash = computeBlake2b256(fullErgoTree);
+          } else {
+            console.log("No ergoTree found in UTXO");
+          }
+        } else {
+          console.log("No UTXOs found");
+        }
+      } catch (e) {
+        console.error("Could not fetch UTXOs:", e);
+      }
+
+      // Check judges
+      const judgesArray = Array.from($judges.data.values());
+      console.log(
+        `\nChecking against ${judgesArray.length} registered judges...`,
+      );
+
+      let userJudge: any = null;
+
+      for (let index = 0; index < judgesArray.length; index++) {
+        const proof = judgesArray[index];
+        const box = proof.current_boxes[0]?.box as any;
+
+        const r7Value = box?.additionalRegisters?.R7?.renderedValue;
+
+        if (userErgoTreeHash && r7Value) {
+          if (userErgoTreeHash.toLowerCase() === r7Value.toLowerCase()) {
+            userJudge = proof;
+            break;
+          }
+        }
+      }
+
+      // Auto-populate if found
+      if (userJudge && judgeTokenIds.length === 0) {
+        judgeTokenIds = [userJudge.token_id];
+      }
     } catch (error) {
-      console.error("getCurrentUserAddress: ERROR:", error);
+      console.error("Error checking user judge token:", error);
     }
   }
 
@@ -252,17 +340,17 @@
       return;
     }
 
-    if (judgeAddresses.length === 0) {
-      errorMessage = "Please add at least one judge address";
-      console.error("No judge addresses");
+    if (judgeTokenIds.length === 0) {
+      errorMessage = "Please add at least one judge";
+      console.error("No judge token IDs");
       return;
     }
 
-    // Validate all judge addresses
-    for (const address of judgeAddresses) {
-      if (!isValidErgoAddress(address)) {
-        errorMessage = `Invalid judge address: ${address}`;
-        console.error("Invalid judge address:", address);
+    // Validate all judge token IDs
+    for (const tokenId of judgeTokenIds) {
+      if (!isValidTokenId(tokenId)) {
+        errorMessage = `Invalid judge token ID: ${tokenId}`;
+        console.error("Invalid judge token ID:", tokenId);
         return;
       }
     }
@@ -293,7 +381,7 @@
       bountyContent,
       minimumTokenSold: Math.round(minimumTokenSold),
       bountyTitle,
-      judgeAddresses,
+      judgeTokenIds,
     });
 
     try {
@@ -306,7 +394,7 @@
         bountyContent,
         Math.round(minimumTokenSold),
         bountyTitle,
-        judgeAddresses,
+        judgeTokenIds,
       );
 
       transactionId = result;
@@ -417,7 +505,7 @@
     maxValuePrecise > 0 &&
     bountyTitle.trim() !== "" &&
     daysLimitBlock > 0 &&
-    judgeAddresses.length > 0;
+    judgeTokenIds.length > 0;
 
   // Add a click handler that logs everything
   function handleButtonClick() {
@@ -439,15 +527,20 @@
       await getCurrentHeight();
       await getErgBalance();
       await getUserTokens();
-      await getCurrentUserAddress(); // Get current user address and set as default judge
+
+      // Fetch judges BEFORE checking if user is a judge
       try {
         if (!ergo) {
           return;
         }
-        await fetchAllJudges(ergo, true); // Force fetch on mount
+        await fetchAllJudges(ergo, true);
+        console.log("Judges fetched, now checking if user is a judge...");
+        // Now check if current user is a judge
+        await getCurrentUserJudgeToken();
       } catch (e: any) {
         console.error("Failed to fetch judges:", e);
-        errorMessage = "Could not load the list of judges. Please try again later.";
+        errorMessage =
+          "Could not load the list of judges. Please try again later.";
       }
     } else {
       console.log(
@@ -632,35 +725,63 @@
         </div>
       </div>
 
-      <!-- Judge Addresses Section -->
       <div class="form-group">
         <Label class="text-sm font-medium mb-2 block">
           Judge Addresses
           <span class="text-orange-400">*</span>
         </Label>
 
+        <!-- Auto-detected Judge Badge (shown when user is a judge) -->
+        {#if judgeTokenIds.length > 0 && Array.from($judges.data.values()).some( (p) => judgeTokenIds.includes(p.token_id), )}
+          <div class="judge-detected-badge mb-3">
+            <div class="badge-content">
+              <div class="badge-icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  class="w-5 h-5"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M8.603 3.799A4.49 4.49 0 0112 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 013.498 1.307 4.491 4.491 0 011.307 3.497A4.49 4.49 0 0121.75 12a4.49 4.49 0 01-1.549 3.397 4.491 4.491 0 01-1.307 3.497 4.491 4.491 0 01-3.497 1.307A4.49 4.49 0 0112 21.75a4.49 4.49 0 01-3.397-1.549 4.49 4.49 0 01-3.498-1.306 4.491 4.491 0 01-1.307-3.498A4.49 4.49 0 012.25 12c0-1.357.6-2.573 1.549-3.397a4.49 4.49 0 011.307-3.497 4.49 4.49 0 013.497-1.307zm7.007 6.387a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div class="badge-text">
+                <p class="badge-title">You're a Judge!</p>
+                <p class="badge-subtitle">
+                  Your reputation token has been auto-added
+                </p>
+              </div>
+            </div>
+          </div>
+        {/if}
+
         <!-- Judge selection dropdown -->
         <div class="flex gap-2 mb-2">
           <select
             class="w-full p-2 border border-orange-500/20 focus:border-orange-500/40 focus:ring-orange-500/20 focus:ring-1 rounded-md bg-background text-foreground"
-            bind:value={selectedDropdownAddress}
+            bind:value={selectedDropdownTokenId}
             on:change={(e) => {
               const selectedIndex = e.currentTarget.selectedIndex;
               if (selectedIndex > 0) {
-                  const selectedOption = e.currentTarget.options[selectedIndex];
-                  selectedJudgeId = selectedOption.dataset.id ?? null;
+                const selectedOption = e.currentTarget.options[selectedIndex];
+                selectedJudgeId = selectedOption.value;
               } else {
-                  selectedJudgeId = null;
-                  selectedDropdownAddress = "";
+                selectedJudgeId = null;
+                selectedDropdownTokenId = "";
               }
             }}
           >
             <option value="" disabled>Select a judge from the list</option>
             {#each Array.from($judges.data.values()) as proof (proof.token_id)}
-              {@const address = (proof.current_boxes[0]?.box as any)?.address}
-              {#if address}
-                <option value={address} data-id={proof.token_id}>
-                  {truncateAddress(address)}
+              {@const ownerHash = (proof.current_boxes[0]?.box as any)
+                ?.additionalRegisters?.R7?.renderedValue}
+              {#if ownerHash}
+                <option value={proof.token_id}>
+                  Token: {proof.token_id.substring(0, 12)}... (Opinions: {proof.number_of_boxes})
                 </option>
               {/if}
             {/each}
@@ -668,24 +789,25 @@
           <Button
             type="button"
             on:click={() => {
-                if(selectedDropdownAddress) {
-                    newJudgeAddress = selectedDropdownAddress;
-                }
+              if (selectedDropdownTokenId) {
+                newJudgeTokenId = selectedDropdownTokenId;
+                addJudge();
+              }
             }}
-            disabled={!selectedDropdownAddress}
-            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+            disabled={!selectedDropdownTokenId}
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md whitespace-nowrap"
           >
             Use
           </Button>
           <Button
             type="button"
             on:click={() => {
-                if(selectedJudgeId) {
-                    goto(`/judges/${selectedJudgeId}`);
-                }
+              if (selectedJudgeId) {
+                goto(`/judges/${selectedJudgeId}`);
+              }
             }}
             disabled={!selectedJudgeId}
-            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md whitespace-nowrap"
           >
             View
           </Button>
@@ -695,49 +817,49 @@
         <div class="flex gap-2 mb-2">
           <Input
             type="text"
-            bind:value={newJudgeAddress}
-            placeholder="Or enter judge's Ergo address manually"
+            bind:value={newJudgeTokenId}
+            placeholder="Or enter judge's reputation token ID manually"
             class="flex-1 border-orange-500/20 focus:border-orange-500/40 focus:ring-orange-500/20 focus:ring-1"
           />
           <Button
             type="button"
             on:click={addJudge}
-            disabled={!newJudgeAddress || !isValidErgoAddress(newJudgeAddress)}
-            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md"
+            disabled={!newJudgeTokenId || !isValidTokenId(newJudgeTokenId)}
+            class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-black rounded-md whitespace-nowrap"
           >
             Add
           </Button>
         </div>
 
-        <!-- Current user as judge button -->
-        {#if currentUserAddress}
-          <button
-            type="button"
-            on:click={() => {
-              newJudgeAddress = currentUserAddress;
-              addJudge();
-            }}
-            class="text-xs text-orange-400 hover:text-orange-300 underline transition-colors mb-2"
-          >
-            Add myself as judge
-          </button>
-        {/if}
-
         <!-- List of added judges -->
-        {#if judgeAddresses.length > 0}
+        {#if judgeTokenIds.length > 0}
           <div class="space-y-2">
             <p class="text-sm text-muted-foreground">Added judges:</p>
-            {#each judgeAddresses as judge, index}
+            {#each judgeTokenIds as tokenId, index}
+              {@const judgeProof = Array.from($judges.data.values()).find(
+                (p) => p.token_id === tokenId,
+              )}
+              {@const ownerHash = judgeProof
+                ? (judgeProof.current_boxes[0]?.box as any)?.additionalRegisters
+                    ?.R7?.renderedValue
+                : null}
               <div
-                class="flex items-center justify-between bg-background/50 p-2 rounded-md"
+                class="flex items-center justify-between bg-background/50 p-2 rounded-md border border-orange-500/10"
               >
-                <span class="text-sm font-mono"
-                  >{judge.slice(0, 10)}...{judge.slice(-6)}</span
-                >
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-mono block truncate">
+                    Token: {tokenId.slice(0, 10)}...{tokenId.slice(-6)}
+                  </span>
+                  {#if ownerHash}
+                    <span class="text-xs text-muted-foreground block truncate">
+                      Owner: {ownerHash.slice(0, 10)}...{ownerHash.slice(-6)}
+                    </span>
+                  {/if}
+                </div>
                 <button
                   type="button"
                   on:click={() => removeJudge(index)}
-                  class="text-red-400 hover:text-red-300 text-sm"
+                  class="text-red-400 hover:text-red-300 text-sm ml-2 whitespace-nowrap"
                 >
                   Remove
                 </button>
@@ -747,9 +869,9 @@
         {/if}
 
         <!-- Validation message -->
-        {#if newJudgeAddress && !isValidErgoAddress(newJudgeAddress)}
+        {#if newJudgeTokenId && !isValidTokenId(newJudgeTokenId)}
           <p class="text-red-400 text-xs mt-1">
-            Please enter a valid Ergo address
+            Please enter a valid reputation token ID (64 character hex)
           </p>
         {/if}
       </div>
@@ -914,6 +1036,88 @@
     .bounty-title {
       font-size: 1.8rem;
       margin: 15px 0 25px;
+    }
+  }
+
+  .judge-detected-badge {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 165, 0, 0.1) 0%,
+      rgba(255, 165, 0, 0.05) 100%
+    );
+    border: 1px solid rgba(255, 165, 0, 0.3);
+    border-radius: 12px;
+    padding: 12px 16px;
+    animation: slideDown 0.4s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .badge-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .badge-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 165, 0, 0.2) 0%,
+      rgba(255, 165, 0, 0.1) 100%
+    );
+    border-radius: 50%;
+    color: orange;
+  }
+
+  .badge-text {
+    flex: 1;
+  }
+
+  .badge-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: orange;
+    margin: 0;
+  }
+
+  .badge-subtitle {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+    margin-top: 2px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .judge-detected-badge {
+      background: linear-gradient(
+        135deg,
+        rgba(255, 165, 0, 0.15) 0%,
+        rgba(255, 165, 0, 0.08) 100%
+      );
+      border-color: rgba(255, 165, 0, 0.4);
+    }
+
+    .badge-icon {
+      background: linear-gradient(
+        135deg,
+        rgba(255, 165, 0, 0.25) 0%,
+        rgba(255, 165, 0, 0.15) 100%
+      );
     }
   }
 </style>

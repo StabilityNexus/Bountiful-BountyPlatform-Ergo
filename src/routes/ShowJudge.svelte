@@ -28,7 +28,16 @@
     }
 
     $: displayProof = judgeInfo?.proof;
-    $: judgeAddress = judgeInfo?.address ?? 'N/A';
+    
+    // Get the contract address (same for all judges using this template)
+    $: contractAddress = judgeInfo?.address ?? 'N/A';
+    
+    // Get the owner's proposition bytes hash (R7) - unique to each judge
+    $: ownerPropHash = (() => {
+        if (!displayProof) return 'N/A';
+        const box = displayProof.current_boxes[0]?.box as any;
+        return box?.additionalRegisters?.R7?.renderedValue ?? 'N/A';
+    })();
 
     // Extract social media links from the main proof box content
     $: judgeSocials = (() => {
@@ -73,23 +82,24 @@
                     <h3 class="section-title">Reputation Proof</h3>
                     <ul class="proof-details">
                         <li>
-                            <strong>Judge ID:</strong>
-                            <span class="font-mono text-xs"
+                            <strong>Reputation Token ID:</strong>
+                            <span class="font-mono text-xs break-all"
                                 >{displayProof.token_id}</span
                             >
                         </li>
                         <li>
-                            <strong>Judge Address:</strong>
+                            <strong>Owner Proof Hash:</strong>
+                            <span class="font-mono text-xs break-all"
+                                >{ownerPropHash}</span
+                            >
+                        </li>
+                        <!-- <li>
+                            <strong>Contract Address:</strong>
                             <span class="font-mono text-xs judge-address"
-                                >{truncateAddress(judgeAddress)}</span
+                                >{truncateAddress(contractAddress)}</span
                             >
-                        </li>
-                        <li>
-                            <strong>Owner Script:</strong>
-                            <span class="font-mono text-xs"
-                                >{displayProof.blake_owner_script}</span
-                            >
-                        </li>
+                            <span class="text-xs text-muted-foreground ml-2">(shared template)</span>
+                        </li> -->
                         <li>
                             <strong>Total Opinions:</strong>
                             {displayProof.number_of_boxes}

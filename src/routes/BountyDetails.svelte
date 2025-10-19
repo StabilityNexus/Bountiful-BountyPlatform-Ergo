@@ -43,21 +43,38 @@
     import { get } from "svelte/store";
     import { onDestroy } from "svelte";
     import { onMount } from "svelte";
-    import { judge_detail} from "$lib/common/store";
-    import { fetchJudgeProofByAddress } from "$lib/ergo/reputation/fetch";
+    import { judge_detail } from "$lib/common/store";
+    import { fetchReputationProofByTokenId } from "$lib/ergo/reputation/fetch";
     import { truncateAddress } from "$lib/common/utils";
+    import { blake2b } from "blakejs";
 
-    async function viewJudge(judgeAddress: string) {
-        // const ergo = get(platform)?.ergo;
+    async function viewJudge(judgeTokenId: string) {
         if (!ergo) {
             alert("Please connect your wallet first.");
             return;
         }
-        const proof = await fetchJudgeProofByAddress(judgeAddress, ergo);
-        if (proof) {
-            judge_detail.set({ proof, address: judgeAddress });
-        } else {
-            alert("Could not find a judge profile for this address.");
+
+        try {
+            window.location.href = `/judges/${judgeTokenId}`;
+        } catch (error) {
+            console.error("Failed to view judge:", error);
+            alert("Could not load judge profile. Please try again.");
+        }
+    }
+
+    function computeBlake2b256(hexString: string): string {
+        try {
+            const bytes = new Uint8Array(
+                hexString.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+            );
+            const hash = blake2b(bytes, undefined, 32);
+            const hashHex = Array.from(hash)
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join("");
+            return hashHex;
+        } catch (error) {
+            console.error("Failed to compute blake2b256:", error);
+            throw error;
         }
     }
 
@@ -567,13 +584,77 @@
     });
 
     async function checkIfIsJudge() {
-        if (!bounty || !$connected) return;
+        if (!bounty || !$connected) {
+            isCurrentUserJudge = false;
+            return;
+        }
 
-        const currentAddress = (await $address) || "";
-        console.log("Checking if current address is a judge:", currentAddress);
-        isCurrentUserJudge =
-            Array.isArray(bounty.content?.judges) &&
-            bounty.content.judges.includes(currentAddress);
+        try {
+            const currentAddress = (await $address) || "";
+            // Get user's ergoTree hash
+            let userErgoTreeHash: string | null = null;
+
+            try {
+                const utxos = await ergo.get_utxos();
+                if (utxos && utxos.length > 0) {
+                    const firstUtxo = utxos[0];
+                    const fullErgoTree =
+                        firstUtxo.propositionBytes || firstUtxo.ergoTree;
+
+                    if (fullErgoTree) {
+                        userErgoTreeHash = computeBlake2b256(fullErgoTree);
+                        console.log("User ergoTree hash:", userErgoTreeHash);
+                    }
+                }
+            } catch (e) {
+                console.error("Could not fetch UTXOs:", e);
+            }
+
+            // Check if user is a judge
+            const judgeTokenIds = bounty.content?.judges || [];
+            console.log("Bounty judge token IDs:", judgeTokenIds);
+
+            for (const judgeTokenId of judgeTokenIds) {
+                try {
+                    const judgeProof = await fetchReputationProofByTokenId(
+                        judgeTokenId,
+                        ergo,
+                    );
+
+                    if (judgeProof) {
+                        const box = judgeProof.current_boxes[0]?.box as any;
+                        const r7Value =
+                            box?.additionalRegisters?.R7?.renderedValue;
+
+                        console.log(
+                            `Checking judge token ${judgeTokenId.substring(0, 12)}...`,
+                        );
+                        console.log("  R7 (Owner Hash):", r7Value);
+
+                        if (userErgoTreeHash && r7Value) {
+                            if (
+                                userErgoTreeHash.toLowerCase() ===
+                                r7Value.toLowerCase()
+                            ) {
+                                isCurrentUserJudge = true;
+                                return;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error(
+                        `Failed to check judge token ${judgeTokenId}:`,
+                        e,
+                    );
+                }
+            }
+
+            isCurrentUserJudge = false;
+            console.log("User is not a judge for this bounty");
+        } catch (error) {
+            console.error("Error checking if user is judge:", error);
+            isCurrentUserJudge = false;
+        }
     }
 
     onMount(async () => {
@@ -644,27 +725,28 @@
                                     </span>
 
                                     {#if isCurrentUserJudge}
-                                        <div class="metadata-item judge-badge">
-                                            <div class="metadata-content">
-                                                <div class="value">
-                                                    You are a <span
-                                                        class="judge-highlight"
-                                                        >Judge</span
-                                                    >
-                                                </div>
-                                            </div>
+                                        <div class="judge-badge">
+                                            <span class="judge-highlight"
+                                                >✅ You are a Judge</span
+                                            >
                                         </div>
                                     {/if}
 
                                     {#if (bounty.content?.judges?.length ?? 0) > 0}
-                                        <span class="value">
-                                            {#each bounty.content.judges ?? [] as judge, index (judge)}
+                                        <div class="judges-list">
+                                            {#each bounty.content.judges ?? [] as judgeTokenId, index (judgeTokenId)}
                                                 <button
                                                     on:click={() =>
-                                                        viewJudge(judge)}
+                                                        viewJudge(judgeTokenId)}
                                                     class="judge-link"
+                                                    title="View judge profile"
                                                 >
-                                                    {truncateAddress(judge)}
+                                                    {judgeTokenId.substring(
+                                                        0,
+                                                        12,
+                                                    )}...{judgeTokenId.substring(
+                                                        judgeTokenId.length - 6,
+                                                    )}
                                                 </button>
                                                 {index <
                                                 (bounty.content.judges ?? [])
@@ -673,7 +755,7 @@
                                                     ? ", "
                                                     : ""}
                                             {/each}
-                                        </span>
+                                        </div>
                                     {:else}
                                         <span class="value"
                                             >No judges assigned</span
@@ -2257,6 +2339,79 @@
 
         .actions-form {
             padding: 1.5rem;
+        }
+    }
+
+    .judge-badge {
+        margin-top: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: linear-gradient(
+            135deg,
+            rgba(255, 165, 0, 0.15) 0%,
+            rgba(255, 165, 0, 0.08) 100%
+        );
+        border: 1px solid rgba(255, 165, 0, 0.3);
+        border-radius: 8px;
+        display: inline-block;
+    }
+
+    .judge-highlight {
+        color: #ffa500;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .judges-list {
+        margin-top: 0.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .judge-link {
+        background: transparent;
+        border: 1px solid rgba(255, 140, 0, 0.3);
+        color: #ff8c00;
+        padding: 0.25rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono",
+            monospace;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .judge-link:hover {
+        background: rgba(255, 140, 0, 0.1);
+        border-color: #ff8c00;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(255, 140, 0, 0.2);
+    }
+
+    .judge-link:active {
+        transform: translateY(0);
+    }
+
+    /* Dark mode adjustments */
+    @media (prefers-color-scheme: dark) {
+        .judge-badge {
+            background: linear-gradient(
+                135deg,
+                rgba(255, 165, 0, 0.2) 0%,
+                rgba(255, 165, 0, 0.1) 100%
+            );
+            border-color: rgba(255, 165, 0, 0.4);
+        }
+
+        .judge-link {
+            border-color: rgba(255, 140, 0, 0.4);
+        }
+
+        .judge-link:hover {
+            background: rgba(255, 140, 0, 0.15);
+            border-color: #ffa500;
         }
     }
 </style>

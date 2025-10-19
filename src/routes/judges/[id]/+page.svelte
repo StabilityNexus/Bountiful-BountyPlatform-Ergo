@@ -1,5 +1,4 @@
 <script lang="ts" context="module">
-    // This makes the ergo wallet connector available on the client-side
     declare const ergo: {
         get_change_address(): Promise<string>;
         get_utxos(): Promise<any[]>;
@@ -29,22 +28,22 @@
 
     onMount(async () => {
         try {
-            // Check for wallet connection first, as it's needed for fetching
-            if (typeof ergo === "undefined") {
-                errorMessage =
-                    "Wallet not connected. Please connect your wallet to view judge details.";
+            // Get the token ID from the URL parameter
+            const judgeTokenId = $page.params.id;
+            console.log("Loading judge with token ID:", judgeTokenId);
+
+            if (!judgeTokenId) {
+                errorMessage = "Invalid judge ID";
                 isLoading = false;
                 return;
             }
 
-            const judgeId = $page.params.id;
-            const proof = await fetchReputationProofByTokenId(judgeId, ergo);
+            const ergoWallet = typeof ergo !== "undefined" ? ergo : null;
+            
+            // Fetch the reputation proof using the token ID
+            const proof = await fetchReputationProofByTokenId(judgeTokenId, ergoWallet);
 
-            console.log("Full proof:", proof);
-            console.log(
-                "Registers:",
-                proof?.current_boxes[0]?.box?.additionalRegisters,
-            );
+            console.log("Fetched proof:", proof);
 
             if (proof) {
                 judgeProof = proof;
@@ -52,50 +51,30 @@
                 try {
                     const primaryBox = proof.current_boxes[0]?.box;
                     if (primaryBox && primaryBox.additionalRegisters) {
-                        // Check if address is in registers (common pattern is R4)
-                        const addressRegister =
-                            primaryBox.additionalRegisters.R4 ||
-                            primaryBox.additionalRegisters.R5;
+                        judgeAddress = (primaryBox as any).address || "Contract Address";
 
-                        if (addressRegister) {
-                            // Register might be a string or an object with renderedValue
-                            let decoded: any = addressRegister;
-                            if (
-                                typeof addressRegister === "object" &&
-                                "renderedValue" in addressRegister
-                            ) {
-                                decoded = (addressRegister as any)
-                                    .renderedValue;
-                            }
-
-                            if (
-                                decoded &&
-                                typeof decoded === "string" &&
-                                decoded.startsWith("9")
-                            ) {
-                                judgeAddress = decoded;
+                        let r7Value: string | null = null;
+                        const r7Reg = primaryBox.additionalRegisters?.R7;
+                        if (r7Reg !== undefined && r7Reg !== null) {
+                            if (typeof r7Reg === "object") {
+                                r7Value = (r7Reg as any).renderedValue ?? String(r7Reg);
                             } else {
-                                console.log("Register value:", decoded);
-                                judgeAddress = "Address format unknown";
+                                r7Value = String(r7Reg);
                             }
-                        } else {
-                            judgeAddress = "Address not found in registers";
                         }
                     } else {
                         judgeAddress = "Box data unavailable";
                     }
                 } catch (err) {
-                    console.error("Failed to extract judge address:", err);
-                    judgeAddress = "Could not extract address";
+                    console.error("Failed to extract judge info:", err);
+                    judgeAddress = "Could not extract info";
                 }
             } else {
-                errorMessage =
-                    "Judge not found. The profile may not exist or could not be loaded.";
+                errorMessage = "Judge not found. The profile may not exist or could not be loaded.";
             }
         } catch (e: any) {
             console.error("Failed to load judge details:", e);
-            errorMessage =
-                "A critical error occurred while loading judge details. Please try again later.";
+            errorMessage = "A critical error occurred while loading judge details. Please try again later.";
         } finally {
             isLoading = false;
         }
