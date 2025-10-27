@@ -19,6 +19,7 @@
     "@fortawesome/free-brands-svg-icons": "^7.1.0",
     "@tailwindcss/typography": "^0.5.16",
     "bits-ui": "^0.22.0",
+    "blakejs": "^1.2.1",
     "buffer": "^6.0.3",
     "embla-carousel-svelte": "^8.6.0",
     "ergo-lib-wasm-browser": "^0.28.0",
