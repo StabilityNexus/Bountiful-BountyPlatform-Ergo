@@ -35,22 +35,23 @@
     "tailwind-variants": "^1.0.0"
   },
   "devDependencies": {
-    "@fleet-sdk/core": "^0.8.1",
-    "@sveltejs/adapter-static": "^3.0.8",
-    "@sveltejs/kit": "^2.21.0",
+    "@fleet-sdk/core": "^0.8.5",
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.47.2",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tsconfig/svelte": "^5.0.4",
     "@types/jest": "^30.0.0",
     "autoprefixer": "^10.4.21",
     "jest": "^30.1.3",
     "postcss": "^8.5.3",
-    "svelte": "^5.28.6",
+    "svelte": "^5.41.1",
     "svelte-check": "^4.1.7",
     "tailwindcss": "^3.4.17",
     "ts-jest": "^29.4.1",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "tsx": "^4.19.4",
-    "typescript": "^5.9.2",
-    "vite": "^6.3.0"
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
   }
 }
