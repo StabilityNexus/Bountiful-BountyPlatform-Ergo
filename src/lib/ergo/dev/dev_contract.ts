@@ -104,7 +104,7 @@ export async function download_dev() {
             });
 
             if (response.ok) {
-                let json_data = await response.json();
+                let json_data: any = await response.json();
                 return json_data.items.map((e: {
                     boxId: string;
                     value: number;
