@@ -26,6 +26,7 @@
 // R7: Long                  The ERG-to-token exchange rate (ERG per contribution token).
 // R8: Coll[Byte]            Base58-encoded JSON string containing the bounty creator's details.
 // R9: Coll[Byte]            Base58-encoded JSON string containing bounty metadata, including "title", "description", "requirements".
+// R10: Int                  Judge phase state: 0 = normal phase, 1 = judge phase active (optional register)
 
 // ===== Transactions ===== //
 // 1. Contribute to Bounty
@@ -159,9 +160,14 @@
   val selfExchangeRate = SELF.R7[Long].get
   val selfCreatorDetails = SELF.R8[Coll[Byte]].get
   val selfBountyMetadata = SELF.R9[Coll[Byte]].get
+  val selfJudgePhaseState = if (SELF.R10[Int].isDefined) SELF.R10[Int].get else 0
   val selfScript = SELF.propositionBytes
 
   val bountyCreatorAddr: SigmaProp = PK("`+owner_addr+`")
+  
+  // Judge phase states: 0 = normal phase, 1 = judge phase active
+  val isNormalPhase = selfJudgePhaseState == 0
+  val isJudgePhase = selfJudgePhaseState == 1
   
   // Validation of the box replication process
   val isSelfReplication = {
@@ -184,6 +190,13 @@
     // The bounty metadata must be the same
     val sameBountyContent = selfBountyMetadata == OUTPUTS(0).R9[Coll[Byte]].get
 
+    // The judge phase state must be the same (unless transitioning phases)
+    val sameJudgePhase = if (SELF.R10[Int].isDefined && OUTPUTS(0).R10[Int].isDefined) {
+      SELF.R10[Int].get == OUTPUTS(0).R10[Int].get
+    } else {
+      !SELF.R10[Int].isDefined && !OUTPUTS(0).R10[Int].isDefined
+    }
+
     // The script must be the same
     val sameScript = selfScript == OUTPUTS(0).propositionBytes
 
@@ -200,7 +213,7 @@
     val noAddsOtherTokens = OUTPUTS(0).tokens.size == 1 || OUTPUTS(0).tokens.size == 2
 
     // Verify that the output box is a valid copy of the input box
-    sameId && sameBlockLimit && sameMinimumContribution && sameExchangeRate && sameConstants && sameBountyContent && sameScript && sameBountyRewardToken && noAddsOtherTokens
+    sameId && sameBlockLimit && sameMinimumContribution && sameExchangeRate && sameConstants && sameBountyContent && sameJudgePhase && sameScript && sameBountyRewardToken && noAddsOtherTokens
   }
 
   val APTokenRemainsConstant = selfAPT == OUTPUTS(0).tokens(0)._2
@@ -593,13 +606,84 @@ val isClaimBountyReward = {
     ))
   }
 
+  // Action: Enter judge phase (bounty creator can activate judge phase)
+  val isEnterJudgePhase = {
+    val judgeBox = CONTEXT.dataInputs.filter { (box: Box) =>
+      // Check if data input is a judge reputation token box
+      box.tokens.size > 0 && box.tokens(0)._1 == fromBase16("`+token_id+`") // Judge token ID would be passed as compile-time constant
+    }
+    
+    val hasJudgeBox = judgeBox.size == 1
+    
+    val transitioningToJudgePhase = {
+      selfJudgePhaseState == 0 && OUTPUTS(0).R10[Int].isDefined && OUTPUTS(0).R10[Int].get == 1
+    }
+    
+    val constants = allOf(Coll(
+      isSelfReplication,
+      contributedCounterRemainsConstant,
+      refundCounterRemainsConstant,
+      auxiliarExchangeCounterRemainsConstant,
+      maintainValue,
+      APTokenRemainsConstant,
+      BountyRewardTokenRemainsConstant
+    ))
+    
+    allOf(Coll(
+      constants,
+      transitioningToJudgePhase,
+      hasJudgeBox,
+      bountyCreatorAddr // Only bounty creator can enter judge phase
+    ))
+  }
+
+  // Action: Judge makes judgment on proposal (judge can approve/reject proposals in judge phase)
+  val isJudgeJudgment = {
+    val inJudgePhase = selfJudgePhaseState == 1
+    
+    val approvedProposals = CONTEXT.dataInputs.filter { (box: Box) =>
+      blake2b256(box.propositionBytes) == fromBase16("`+proposal_contract_hash+`") &&
+      box.R5[Coll[Byte]].get == selfId &&
+      (box.R8[Int].get == 0 || box.R8[Int].get == 2) // Pending or rejected proposals can be judged
+    }
+    
+    val hasProposalToJudge = approvedProposals.size == 1
+    
+    val judgeBox = CONTEXT.dataInputs.filter { (box: Box) =>
+      box.tokens.size > 0 && box.tokens(0)._1 == fromBase16("`+token_id+`")
+    }
+    
+    val hasJudgeBox = judgeBox.size == 1
+    
+    val constants = allOf(Coll(
+      isSelfReplication,
+      contributedCounterRemainsConstant,
+      refundCounterRemainsConstant,
+      auxiliarExchangeCounterRemainsConstant,
+      maintainValue,
+      APTokenRemainsConstant,
+      BountyRewardTokenRemainsConstant,
+      OUTPUTS(0).R10[Int].isDefined && OUTPUTS(0).R10[Int].get == 1 // Stay in judge phase
+    ))
+    
+    allOf(Coll(
+      constants,
+      inJudgePhase,
+      hasProposalToJudge,
+      hasJudgeBox
+      // Note: Judge signature verification would be done via the judge box's proposition
+    ))
+  }
+
   val actions = anyOf(Coll(
     isContributeToBounty,
     isRefundTokens,
     isClaimBountyReward,
     isWithdrawUnusedRewardTokens,
     isAddRewardTokens,
-    isExchangeContributionTokens
+    isExchangeContributionTokens,
+    isEnterJudgePhase,
+    isJudgeJudgment
     // isCreatorApproveProposal - COMMENTED OUT FOR TESTING
   ))
 
