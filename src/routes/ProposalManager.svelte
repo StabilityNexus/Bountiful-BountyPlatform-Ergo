@@ -26,6 +26,8 @@
     import {
         creatorApproveProposal,
         claimBountyReward,
+        validateProposalForClosing,
+        type ProposalBox,
     } from "$lib/ergo/actions/approve_proposal";
     import { disputeProposal } from "$lib/ergo/actions/dispute_proposal";
     import { rejectProposal } from "$lib/ergo/actions/reject_proposal";
@@ -61,6 +63,10 @@
     }> = [];
 
     let isCurrentUserJudge = false;
+    
+    // Proposal selection for closing bounty
+    let selectedProposalForClosing: string | null = null;
+    let closingValidationError: string | null = null;
 
     // truncateAddress function for Ergo addresses
     function truncateAddress(address: string): string {
@@ -542,55 +548,117 @@
         }
     }
 
-    async function claimReward(proposalId: string) {
-        console.log("=== CLAIM REWARD START ===");
+    /**
+     * Closes the bounty by selecting an approved proposal.
+     * This function validates the proposal and uses it as DataInput to close the bounty.
+     */
+    async function closeBountyWithProposal() {
+        console.log("=== CLOSE BOUNTY WITH PROPOSAL START ===");
         errorMessage = null;
+        closingValidationError = null;
 
-        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!selectedProposalForClosing) {
+            closingValidationError = "Please select a proposal to close the bounty";
+            return;
+        }
+
+        const proposal = proposals.find((p) => p.id === selectedProposalForClosing);
         if (!proposal) {
-            errorMessage = "Proposal not found";
+            closingValidationError = "Selected proposal not found";
             return;
         }
 
-        if (!bounty?.box) {
-            errorMessage = "Bounty box not found";
+        if (!bounty?.box || !bounty?.bounty_id) {
+            closingValidationError = "Bounty box or bounty ID not found";
             return;
         }
 
-        // Fetch the latest proposal box from blockchain
+        if (!isCurrentUserJudge) {
+            closingValidationError = "Only the bounty creator can close the bounty";
+            return;
+        }
+
         try {
             isSubmitting = true;
 
-            // The proposal.box should already be the approved one, but we can use it directly
-            const approvedProposalBox = proposal.box;
+            // Validate proposal before closing
+            const proposalBox = proposal.box as any as ProposalBox;
+            const validation = validateProposalForClosing(proposalBox, bounty.bounty_id);
+            
+            if (!validation.isValid) {
+                closingValidationError = validation.error || "Proposal validation failed";
+                return;
+            }
 
-            console.log("Claiming reward for proposal:", proposalId);
+            console.log("Closing bounty with proposal:", selectedProposalForClosing);
             console.log("Using bounty box:", bounty.box);
-            console.log("Using approved proposal box:", approvedProposalBox);
+            console.log("Using approved proposal box:", proposalBox);
 
             const txId = await claimBountyReward(
                 bounty.box as any,
-                approvedProposalBox,
+                proposalBox,
             );
 
             if (txId) {
                 transactionId = txId;
-                console.log("Claim transaction successful:", txId);
+                console.log("Bounty close transaction successful:", txId);
 
                 // Update proposal status to completed
                 proposals = proposals.map((p) =>
-                    p.id === proposalId ? { ...p, status: "completed" } : p,
+                    p.id === selectedProposalForClosing ? { ...p, status: "completed" } : p,
                 );
+
+                // Clear selection
+                selectedProposalForClosing = null;
+                closingValidationError = null;
 
                 // Reload proposals after a delay
                 setTimeout(loadProposals, 5000);
             }
         } catch (e) {
-            console.error("Claim reward error:", e);
-            errorMessage = (e as Error).message;
+            console.error("Close bounty error:", e);
+            closingValidationError = (e as Error).message || "Failed to close bounty";
+            errorMessage = closingValidationError;
         } finally {
             isSubmitting = false;
-            console.log("=== CLAIM REWARD END ===");
+            console.log("=== CLOSE BOUNTY WITH PROPOSAL END ===");
+        }
+    }
+
+    /**
+     * Legacy function - kept for backward compatibility.
+     * Use closeBountyWithProposal() instead.
+     */
+    async function claimReward(proposalId: string) {
+        selectedProposalForClosing = proposalId;
+        await closeBountyWithProposal();
+    }
+    
+    /**
+     * Handles proposal selection for closing bounty.
+     */
+    function selectProposalForClosing(proposalId: string) {
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal) {
+            closingValidationError = "Proposal not found";
+            return;
+        }
+
+        if (proposal.status !== "approved") {
+            closingValidationError = "Only approved proposals can be selected for closing";
+            return;
+        }
+
+        selectedProposalForClosing = proposalId;
+        closingValidationError = null;
+        
+        // Validate immediately
+        if (bounty?.box && bounty?.bounty_id) {
+            const proposalBox = proposal.box as any as ProposalBox;
+            const validation = validateProposalForClosing(proposalBox, bounty.bounty_id);
+            if (!validation.isValid) {
+                closingValidationError = validation.error || "Proposal validation failed";
+            }
         }
     }
 
@@ -711,6 +779,72 @@
                 🎯 You are the bounty creator - you can approve proposals
             </div>
         {/if}
+    </div>
+
+    <!-- Close Bounty Section (for creator) -->
+    {#if isCurrentUserJudge && deadline_passed}
+        <div class="close-bounty-section">
+            <h3 class="close-bounty-title">Close Bounty</h3>
+            <p class="close-bounty-description">
+                Select an approved proposal to close the bounty and distribute rewards.
+                The selected proposal will be used as a DataInput to verify the payout address.
+            </p>
+            
+            {#if closingValidationError}
+                <div class="validation-error">
+                    ⚠️ {closingValidationError}
+                </div>
+            {/if}
+
+            <div class="proposal-selection">
+                <label class="selection-label">Select Proposal:</label>
+                <select 
+                    class="proposal-select"
+                    bind:value={selectedProposalForClosing}
+                    on:change={() => {
+                        if (selectedProposalForClosing) {
+                            selectProposalForClosing(selectedProposalForClosing);
+                        }
+                    }}
+                >
+                    <option value="">-- Select an approved proposal --</option>
+                    {#each proposals.filter(p => p.status === "approved") as proposal}
+                        <option value={proposal.id}>
+                            {proposal.summary} - {truncateAddress(proposal.developer || "Unknown")}
+                        </option>
+                    {/each}
+                </select>
+            </div>
+
+            {#if selectedProposalForClosing}
+                {@const selectedProposal = proposals.find(p => p.id === selectedProposalForClosing)}
+                {#if selectedProposal}
+                    <div class="selected-proposal-info">
+                        <h4>Selected Proposal:</h4>
+                        <p><strong>Summary:</strong> {selectedProposal.summary}</p>
+                        <p><strong>Developer:</strong> {truncateAddress(selectedProposal.developer || "Unknown")}</p>
+                        {#if selectedProposal.url}
+                            <p><strong>Repository:</strong> <a href={selectedProposal.url} target="_blank">{selectedProposal.url}</a></p>
+                        {/if}
+                    </div>
+                {/if}
+            {/if}
+
+            <button
+                class="close-bounty-btn"
+                on:click={closeBountyWithProposal}
+                disabled={isSubmitting || !selectedProposalForClosing || !!closingValidationError}
+            >
+                {isSubmitting ? "Closing..." : "Close Bounty & Distribute Rewards"}
+            </button>
+
+            {#if !proposals.filter(p => p.status === "approved").length}
+                <div class="no-approved-proposals">
+                    <p>⚠️ No approved proposals available. Contributors can request refunds if the deadline has passed.</p>
+                </div>
+            {/if}
+        </div>
+    {/if}
         {#if $connected && !deadline_passed}
             <button
                 class="submit-btn primary"
@@ -977,6 +1111,154 @@
         max-width: 1200px;
         margin: 0 auto;
         padding: 2rem;
+    }
+
+    /* Close Bounty Section */
+    .close-bounty-section {
+        background: rgba(255, 165, 0, 0.05);
+        border: 2px solid rgba(255, 165, 0, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .close-bounty-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #ffa500;
+        margin: 0 0 0.5rem 0;
+    }
+
+    .close-bounty-description {
+        color: var(--text-secondary, #666);
+        margin: 0 0 1rem 0;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    [data-mode="dark"] .close-bounty-description {
+        color: #aaa;
+    }
+
+    .validation-error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        color: #ef4444;
+        font-size: 0.9rem;
+    }
+
+    .proposal-selection {
+        margin-bottom: 1rem;
+    }
+
+    .selection-label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: var(--text-primary, #333);
+    }
+
+    [data-mode="dark"] .selection-label {
+        color: #ddd;
+    }
+
+    .proposal-select {
+        width: 100%;
+        padding: 0.75rem;
+        border: 2px solid rgba(255, 165, 0, 0.3);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-primary, #333);
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    [data-mode="dark"] .proposal-select {
+        background: rgba(255, 255, 255, 0.05);
+        color: #ddd;
+    }
+
+    .proposal-select:focus {
+        outline: none;
+        border-color: #ffa500;
+        box-shadow: 0 0 0 3px rgba(255, 165, 0, 0.1);
+    }
+
+    .selected-proposal-info {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 165, 0, 0.2);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .selected-proposal-info h4 {
+        margin: 0 0 0.75rem 0;
+        color: #ffa500;
+        font-size: 1.1rem;
+    }
+
+    .selected-proposal-info p {
+        margin: 0.5rem 0;
+        color: var(--text-primary, #333);
+        font-size: 0.9rem;
+    }
+
+    [data-mode="dark"] .selected-proposal-info p {
+        color: #ddd;
+    }
+
+    .selected-proposal-info a {
+        color: #ffa500;
+        text-decoration: none;
+    }
+
+    .selected-proposal-info a:hover {
+        text-decoration: underline;
+    }
+
+    .close-bounty-btn {
+        width: 100%;
+        padding: 1rem;
+        background: linear-gradient(135deg, #ffa500, #ff8c00);
+        border: none;
+        border-radius: 8px;
+        color: black;
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 12px rgba(255, 165, 0, 0.3);
+    }
+
+    .close-bounty-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #ff8c00, #ffa500);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(255, 165, 0, 0.4);
+    }
+
+    .close-bounty-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .no-approved-proposals {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: rgba(255, 193, 7, 0.1);
+        border: 1px solid rgba(255, 193, 7, 0.3);
+        border-radius: 8px;
+        color: #ffc107;
+    }
+
+    .no-approved-proposals p {
+        margin: 0;
+        font-size: 0.9rem;
     }
 
     .section-header {
