@@ -8,7 +8,7 @@ import {
 import { type contract_version } from '../contract';
 import type { ProposalBox, BountyBox } from './approve_proposal';
 import { SGroupElement, SColl, SByte, SSigmaProp, SConstant, SInt } from '@fleet-sdk/serializer';
-import { get_proposal_contract_ergo_tree, get_proposal_contract_details } from '../proposal_contract';
+import { hexToUtf8 } from '$lib/ergo/utils';
 declare const ergo: {
     get_change_address(): Promise<string>;
     get_utxos(): Promise<Box<Amount>[]>;
@@ -124,7 +124,57 @@ export async function disputeProposal(
 
     const registers = (proposalBox as any).additionalRegisters;
     const fleetCompatibleProposalBox = createFleetSdkBox(proposalBox);
-    
+
+    const inputs = [fleetCompatibleProposalBox, ...walletUtxos];
+    const repOutputs: any[] = [];
+
+    const ergo_tree_hash = getReputationProofTemplateHash();
+    const creatorDetails = JSON.parse(hexToUtf8(bountyBox.R8));
+    const judgeAddress = creatorDetails.address;
+    const judgeErgoTree = ErgoAddress.fromBase58(judgeAddress).ergoTree;
+    const judgeUserId = uint8ArrayToHex(blake2b256(hexToBytes(judgeErgoTree)));
+
+    const fetchRepBoxForUser = async (userId: string) => {
+        const url = `${explorer_uri}/api/v1/boxes/unspent/search`;
+        const body = {
+            "ergoTreeTemplateHash": ergo_tree_hash,
+            "registers": {
+                "R5": userId
+            }
+        };
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!response.ok) return null;
+        const json_data = await response.json();
+        if (!json_data.items || json_data.items.length === 0) return null;
+        const box = json_data.items[0];
+        return {
+            boxId: box.boxId,
+            ergoTree: box.ergoTree,
+            value: box.value,
+            assets: box.assets.map((a: any) => ({ tokenId: a.tokenId, amount: BigInt(a.amount) })),
+            additionalRegisters: {
+                R4: box.additionalRegisters.R4?.serializedValue,
+                R5: box.additionalRegisters.R5?.serializedValue,
+                R6: box.additionalRegisters.R6?.serializedValue,
+                R7: box.additionalRegisters.R7?.serializedValue,
+                R8: box.additionalRegisters.R8?.serializedValue,
+                R9: box.additionalRegisters.R9?.serializedValue
+            }
+        };
+    };
+
+    const judgeRepBox = await fetchRepBoxForUser(judgeUserId);
+    if (judgeRepBox) {
+        inputs.push(judgeRepBox);
+        const updatedAmount = BigInt(judgeRepBox.assets[0].amount) - 1n;
+        const judgeRepOutput = new OutputBuilder(BigInt(judgeRepBox.value))
+            .setErgoTree(judgeRepBox.ergoTree)
+            .addTokens({ tokenId: judgeRepBox.assets[0].tokenId, amount: updatedAmount })
+            .setAdditionalRegisters(judgeRepBox.additionalRegisters)
+            .build();
+        repOutputs.push(judgeRepOutput);
+    }
+
     const updatedProposalBox = new OutputBuilder(
         BigInt(proposalBox.value),
         proposalBox.ergoTree
@@ -147,9 +197,9 @@ export async function disputeProposal(
     updatedProposalBox.setAdditionalRegisters(outputRegisters);
 
     const transactionBuilder = new TransactionBuilder(await ergo.get_current_height())
-        .from([fleetCompatibleProposalBox, ...walletUtxos])
-        .to(updatedProposalBox)
-        .withDataFrom([bountyBox]) 
+        .from(inputs)
+        .to([updatedProposalBox, ...repOutputs])
+        .withDataFrom([bountyBox, fleetCompatibleProposalBox]) 
         .sendChangeTo(changeAddress)
         .payFee(RECOMMENDED_MIN_FEE_VALUE);
 
