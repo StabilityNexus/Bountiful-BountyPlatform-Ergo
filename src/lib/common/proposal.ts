@@ -174,6 +174,9 @@ export function parseProposalBox(box: Box<Amount>, index: number): Proposal | nu
                 case 3:
                     status = "disputed";
                     break;
+                case 4:
+                    status = "judge_system";
+                    break;
                 default:
                     status = "pending";
             }

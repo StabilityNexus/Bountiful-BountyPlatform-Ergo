@@ -39,7 +39,7 @@ function getSerializedValue(register: any): string {
  */
 export async function updateProposalStatus(
     proposalBox: ProposalBox,
-    newStatus: 0 | 3,
+    newStatus: 0 | 1 | 2 | 3 | 4,
     creatorAddress: string
 ): Promise<string | null> {
     if (!ergo) throw new Error("Ergo object is not available");

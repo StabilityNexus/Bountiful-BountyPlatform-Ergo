@@ -8,9 +8,10 @@ export default {
       useESM: true,
       tsconfig: 'tsconfig.json'
     }],
-    '^.+\\.es$': '<rootDir>/test/fileMock.cjs'
+    '^.+\\.es$': '<rootDir>/test/rawEsTransform.cjs'
   },
   moduleNameMapper: {
+    '^(.*\\.es)\\?raw$': '$1',
     '^\\$lib/(.*)$': '<rootDir>/src/lib/$1'
   },
   transformIgnorePatterns: [
