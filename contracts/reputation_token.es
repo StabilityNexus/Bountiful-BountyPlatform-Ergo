@@ -116,6 +116,43 @@
     } else {
       false
     }
+  val protocolMintPath = {
+    val proposalDataInput = CONTEXT.dataInputs.find { (b: Box) => b.R8[Int].isDefined }
+    if (proposalDataInput.isDefined) {
+      val proposal = proposalDataInput.get
+      val status = proposal.R8[Int].get
+      val newProposalOutput = OUTPUTS.find { (b: Box) => b.R8[Int].isDefined && b.R5[Coll[Byte]].get == proposal.R5[Coll[Byte]].get }
+      if (newProposalOutput.isDefined && newProposalOutput.get.R8[Int].get == 1 && status == 0) { // approval
+        val proposerPK = proposal.R4[GroupElement].get
+        val userId = SELF.R5[Coll[Byte]].get
+        val isProposer = userId == blake2b256(proposerPK.propBytes)
+        val judgePK = proposal.R7[SigmaProp].get.propBytes
+        val isJudge = userId == blake2b256(judgePK)
+        if (isProposer || isJudge) {
+          val newAmount = SELF.tokens(0)._2 + 1
+          val outputRep = OUTPUTS.find { (b: Box) => b.propositionBytes == SELF.propositionBytes && b.R5[Coll[Byte]].get == userId && b.tokens(0)._2 == newAmount }
+          outputRep.isDefined
+        } else false
+      } else false
+    } else false
   }
-  sigmaProp(ownerSignedPath || publicTopUpPath)
+  val protocolBurnPath = {
+    val proposalDataInput = CONTEXT.dataInputs.find { (b: Box) => b.R8[Int].isDefined }
+    if (proposalDataInput.isDefined) {
+      val proposal = proposalDataInput.get
+      val status = proposal.R8[Int].get
+      val newProposalOutput = OUTPUTS.find { (b: Box) => b.R8[Int].isDefined && b.R5[Coll[Byte]].get == proposal.R5[Coll[Byte]].get }
+      if (newProposalOutput.isDefined && newProposalOutput.get.R8[Int].get == 3 && status != 3) { // dispute
+        val judgePK = proposal.R7[SigmaProp].get.propBytes
+        val userId = SELF.R5[Coll[Byte]].get
+        val isJudge = userId == blake2b256(judgePK)
+        if (isJudge) {
+          val newAmount = SELF.tokens(0)._2 - 1
+          val outputRep = OUTPUTS.find { (b: Box) => b.propositionBytes == SELF.propositionBytes && b.R5[Coll[Byte]].get == userId && b.tokens(0)._2 == newAmount }
+          outputRep.isDefined
+        } else false
+      } else false
+    } else false
+  }
+  sigmaProp(ownerSignedPath || publicTopUpPath || protocolMintPath || protocolBurnPath)
 }

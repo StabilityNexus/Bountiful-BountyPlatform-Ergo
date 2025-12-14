@@ -10,6 +10,11 @@ import { type contract_version } from '../contract';
 import { get_dev_contract_address, get_dev_fee } from '../dev/dev_contract';
 import { hexToErgoAddress } from '../../common/proposal'; // Import the utility
 import { SGroupElement, SColl, SByte, SSigmaProp, SInt } from '@fleet-sdk/serializer';
+import { explorer_uri } from '$lib/ergo/envs';
+import { getReputationProofTemplateHash, getReputationProofErgoTreeHex } from '$lib/ergo/contract';
+import { uint8ArrayToHex, hexToBytes } from '$lib/ergo/utils';
+import { blake2b256 } from '@fleet-sdk/crypto';
+import { ErgoAddress } from '@fleet-sdk/core';
 
 
 export interface BountyBox extends Box<Amount> {
@@ -99,6 +104,69 @@ export async function creatorApproveProposal(
 
     const fleetCompatibleProposalBox = createFleetSdkBox(proposalBox);
 
+    const inputs = [fleetCompatibleProposalBox, ...walletUtxos];
+    const repOutputs: any[] = [];
+
+    const ergo_tree_hash = getReputationProofTemplateHash();
+    const proposerPKHex = proposalBox.R4;
+    const proposerUserId = uint8ArrayToHex(blake2b256(hexToBytes(proposerPKHex)));
+    const judgeAddress = creatorAddress;
+    const judgeErgoTree = ErgoAddress.fromBase58(judgeAddress).ergoTree;
+    const judgeUserId = uint8ArrayToHex(blake2b256(hexToBytes(judgeErgoTree)));
+
+    const fetchRepBoxForUser = async (userId: string) => {
+        const url = `${explorer_uri}/api/v1/boxes/unspent/search`;
+        const body = {
+            "ergoTreeTemplateHash": ergo_tree_hash,
+            "registers": {
+                "R5": userId
+            }
+        };
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!response.ok) return null;
+        const json_data = await response.json();
+        if (!json_data.items || json_data.items.length === 0) return null;
+        const box = json_data.items[0];
+        return {
+            boxId: box.boxId,
+            ergoTree: box.ergoTree,
+            value: box.value,
+            assets: box.assets.map((a: any) => ({ tokenId: a.tokenId, amount: BigInt(a.amount) })),
+            additionalRegisters: {
+                R4: box.additionalRegisters.R4?.serializedValue,
+                R5: box.additionalRegisters.R5?.serializedValue,
+                R6: box.additionalRegisters.R6?.serializedValue,
+                R7: box.additionalRegisters.R7?.serializedValue,
+                R8: box.additionalRegisters.R8?.serializedValue,
+                R9: box.additionalRegisters.R9?.serializedValue
+            }
+        };
+    };
+
+    const proposerRepBox = await fetchRepBoxForUser(proposerUserId);
+    if (proposerRepBox) {
+        inputs.push(proposerRepBox);
+        const updatedAmount = BigInt(proposerRepBox.assets[0].amount) + 1n;
+        const proposerRepOutput = new OutputBuilder(BigInt(proposerRepBox.value))
+            .setErgoTree(proposerRepBox.ergoTree)
+            .addTokens({ tokenId: proposerRepBox.assets[0].tokenId, amount: updatedAmount })
+            .setAdditionalRegisters(proposerRepBox.additionalRegisters)
+            .build();
+        repOutputs.push(proposerRepOutput);
+    }
+
+    const judgeRepBox = walletUtxos.find((box: any) => box.ergoTree == getReputationProofErgoTreeHex() && box.additionalRegisters?.R5?.serializedValue == judgeUserId);
+    if (judgeRepBox) {
+        inputs.push(judgeRepBox);
+        const updatedAmount = BigInt(judgeRepBox.assets[0].amount) + 1n;
+        const judgeRepOutput = new OutputBuilder(BigInt(judgeRepBox.value))
+            .setErgoTree(judgeRepBox.ergoTree)
+            .addTokens({ tokenId: judgeRepBox.assets[0].tokenId, amount: updatedAmount })
+            .setAdditionalRegisters(judgeRepBox.additionalRegisters)
+            .build();
+        repOutputs.push(judgeRepOutput);
+    }
+
     // Replicate the proposal box, only changing the status in R8
     const updatedProposalBox = new OutputBuilder(
         BigInt(proposalBox.value),
@@ -120,8 +188,9 @@ export async function creatorApproveProposal(
     });
 
     const unsignedTransaction = new TransactionBuilder(height)
-        .from([fleetCompatibleProposalBox, ...walletUtxos])
-        .to(updatedProposalBox)
+        .from(inputs)
+        .dataInputs([fleetCompatibleProposalBox])
+        .to([updatedProposalBox, ...repOutputs])
         .sendChangeTo(changeAddress)
         .payFee(RECOMMENDED_MIN_FEE_VALUE)
         .build()
