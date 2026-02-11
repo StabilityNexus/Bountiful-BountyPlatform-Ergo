@@ -306,6 +306,8 @@
                                 status = "rejected";
                             } else if (statusValue === "3") {
                                 status = "disputed";
+                            } else if (statusValue === "4") {
+                                status = "judge_system";
                             }
 
                             return {
@@ -660,6 +662,33 @@
         }
     }
 
+    async function handleJudgeSystem(proposalId: string) {
+        const proposal = proposals.find((p) => p.id === proposalId);
+        if (!proposal || !$address) {
+            console.error("Judge system: missing proposal or address");
+            return;
+        }
+
+        isSubmitting = true;
+        errorMessage = null;
+        try {
+            const txId = await platform.updateProposalStatus(
+                proposal.box,
+                4,
+                $address,
+            );
+            if (txId) {
+                transactionId = txId;
+                setTimeout(loadProposals, 5000);
+            }
+        } catch (e) {
+            console.error("Judge system escalation error:", e);
+            errorMessage = (e as Error).message;
+        } finally {
+            isSubmitting = false;
+        }
+    }
+
     // Initialize proposals when component loads
     $: if (bounty) {
         loadProposals();
@@ -809,7 +838,7 @@
 
                     <div class="card-actions">
                         {#if isCurrentUserJudge}
-                            {#if proposal.status === "pending" || proposal.status === "disputed"}
+                            {#if proposal.status === "pending" || proposal.status === "judge_system"}
                                 <button
                                     class="action-btn approve"
                                     on:click={() =>
@@ -824,6 +853,15 @@
                                     disabled={isSubmitting}
                                 >
                                     Reject
+                                </button>
+                            {/if}
+                            {#if proposal.status === "disputed"}
+                                <button
+                                    class="action-btn dispute"
+                                    on:click={() => handleJudgeSystem(proposal.id)}
+                                    disabled={isSubmitting}
+                                >
+                                    Send to Judge System
                                 </button>
                             {/if}
                             {#if proposal.status === "approved"}

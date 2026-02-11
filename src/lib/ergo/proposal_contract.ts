@@ -4,8 +4,9 @@ import { blake2b256, sha256, hex } from "@fleet-sdk/crypto";
 import { uint8ArrayToHex } from "./utils";
 import { network_id } from "./envs";
 import proposalV1_0Template from "../../../contracts/proposal_v1_0.es?raw";
+import proposalV1_1Template from "../../../contracts/proposal_v1_1.es?raw";
 
-export type proposal_contract_version = "v1_0";
+export type proposal_contract_version = "v1_0" | "v1_1";
 
 // Return structure
 export interface ProposalContractDetails {
@@ -18,11 +19,18 @@ function generate_proposal_contract_v1_0(): string {
   return proposalV1_0Template;
 }
 
+// ===== Contract Generator for v1_1 ===== //
+function generate_proposal_contract_v1_1(): string {
+  return proposalV1_1Template;
+}
+
 // ===== Version Switcher ===== //
 function handle_proposal_contract_generator(version: proposal_contract_version): () => string {
   switch (version) {
     case "v1_0":
       return generate_proposal_contract_v1_0;
+    case "v1_1":
+      return generate_proposal_contract_v1_1;
     default:
       throw new Error("Invalid proposal contract version");
   }

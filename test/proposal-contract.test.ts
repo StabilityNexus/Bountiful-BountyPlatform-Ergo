@@ -25,7 +25,8 @@ describe('Proposal Contract Tests', () => {
             PENDING: 0,
             APPROVED: 1, 
             REJECTED: 2,
-            DISPUTED: 3
+            DISPUTED: 3,
+            JUDGE_SYSTEM: 4
         };
         
         // Test status transitions for dispute
@@ -39,6 +40,7 @@ describe('Proposal Contract Tests', () => {
         expect(canDisputeFrom).toContain(1); // Can dispute from approved
         expect(canDisputeFrom).toContain(2); // Can dispute from rejected
         expect(canDisputeFrom).not.toContain(3); // Cannot dispute from disputed
+        expect(canDisputeFrom).not.toContain(4); // Cannot dispute from judge system
         
         console.log('Dispute status validation passed');
     });

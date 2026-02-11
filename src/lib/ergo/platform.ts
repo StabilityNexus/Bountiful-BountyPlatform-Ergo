@@ -22,7 +22,7 @@ declare const ergo: {
   get_current_height(): Promise<number>;
   sign_tx(tx: any): Promise<any>;
   submit_tx(tx: any): Promise<string>;
-};
+} | undefined;
 
 // Type declarations for Ergo globals - Updated to match types.d.ts
 declare global {
@@ -50,6 +50,12 @@ export class ErgoPlatform implements Platform {
   time_per_block = 2 * 60 * 1000; // 2 minutes per block
   last_version: contract_version = "v1_0";
 
+  private getErgoApi(): typeof ergo | undefined {
+    if (typeof ergo !== 'undefined' && ergo) return ergo;
+    if (typeof window !== 'undefined') return (window as any).ergo;
+    return undefined;
+  }
+
   // --- Wallet Connection ---
   async connect(): Promise<void> {
     if (typeof window.ergoConnector !== 'undefined') {
@@ -57,7 +63,13 @@ export class ErgoPlatform implements Platform {
       if (nautilus) {
         if (await nautilus.connect()) {
           console.log('Connected!');
-          address.set(await ergo.get_change_address());
+          const ergoApi = this.getErgoApi();
+          if (!ergoApi) {
+            console.warn('Connected to Nautilus, but ergo API is not available on window');
+            connected.set(false);
+            return;
+          }
+          address.set(await ergoApi.get_change_address());
           network.set((network_id == "mainnet") ? "ergo-mainnet" : "ergo-testnet");
           await this.get_balance();
           connected.set(true);
@@ -74,7 +86,9 @@ export class ErgoPlatform implements Platform {
 
   async get_address(): Promise<string> {
     try {
-      return await ergo.get_change_address();
+      const ergoApi = this.getErgoApi();
+      if (!ergoApi) throw new Error('Ergo API is not available');
+      return await ergoApi.get_change_address();
     } catch (error) {
       console.error("Failed to get current address:", error);
       throw new Error("Unable to get current address");
@@ -83,8 +97,9 @@ export class ErgoPlatform implements Platform {
 
   async get_current_height(): Promise<number> {
     try {
-      // If connected to the Ergo wallet, get the current height directly
-      return await ergo.get_current_height();
+      const ergoApi = this.getErgoApi();
+      if (!ergoApi) throw new Error('Ergo API is not available');
+      return await ergoApi.get_current_height();
     } catch {
       // Fallback to fetching the current height from the Ergo API
       try {
@@ -104,7 +119,12 @@ export class ErgoPlatform implements Platform {
 
   async get_balance(id?: string): Promise<Map<string, number>> {
     const balanceMap = new Map<string, number>();
-    const addr = await ergo.get_change_address();
+    const ergoApi = this.getErgoApi();
+    if (!ergoApi) {
+      throw new Error('Ergo wallet is not available');
+    }
+
+    const addr = await ergoApi.get_change_address();
 
     if (addr) {
       try {
@@ -175,7 +195,7 @@ export class ErgoPlatform implements Platform {
     return await temp_exchange(bounty, token_amount);
   }
 
-  async updateProposalStatus(proposalBox: ProposalBox, newStatus: 0 | 3, creatorAddress: string): Promise<string | null> {
+  async updateProposalStatus(proposalBox: ProposalBox, newStatus: 0 | 1 | 2 | 3 | 4, creatorAddress: string): Promise<string | null> {
     return await updateProposalStatus(proposalBox, newStatus, creatorAddress);
   }
 
@@ -218,14 +238,15 @@ export class ErgoPlatform implements Platform {
 
     return Promise.all(boxesWithParsed.map(async (box) => {
       const r8 = (box.additionalRegisters as any)?.R8;
-      let status: 'pending' | 'approved' | 'rejected' | 'disputed' = 'pending';
+      let status: 'pending' | 'approved' | 'rejected' | 'disputed' | 'judge_system' = 'pending';
       if (r8 && r8.serializedValue) {
         // The value is a hex string of a number, e.g. "0506" for 3.
         // The first byte is the type (05 for Int), the rest is the value.
         const statusVal = parseInt(r8.serializedValue.slice(2), 16);
-        if (statusVal === 3) {
-          status = 'disputed';
-        }
+        if (statusVal === 1) status = 'approved';
+        else if (statusVal === 2) status = 'rejected';
+        else if (statusVal === 3) status = 'disputed';
+        else if (statusVal === 4) status = 'judge_system';
       }
 
       return {
